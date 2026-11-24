@@ -9,6 +9,7 @@ let package = Package(
             name: "PasteTrove",
             path: "Sources/PasteTrove",
             linkerSettings: [.linkedLibrary("sqlite3"), .linkedFramework("Carbon")]
-        )
+        ),
+        .testTarget(name: "PasteTroveTests", dependencies: ["PasteTrove"], path: "Tests/PasteTroveTests"),
     ]
 )
