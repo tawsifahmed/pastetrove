@@ -104,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let layout = query.first(where: { $0.name == "layout" })?.value.flatMap(Layout.init(rawValue:)) {
             model.layout = layout
         }
-        panel.show(at: statusItem.button?.window.map { .below($0.frame) } ?? .center)
+        panel.show(at: anchor(.statusIcon))
         if query.contains(where: { $0.name == "preview" && $0.value == "1" }) {
             panel.togglePreview()
         }
@@ -168,13 +168,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func togglePanel(placement: Placement, clicked: Bool = false) {
-        let anchor: PanelController.Anchor
+        panel.toggle(at: anchor(placement), clicked: clicked)
+    }
+
+    private func anchor(_ placement: Placement) -> PanelController.Anchor {
         switch placement {
-        case .statusIcon: anchor = statusItem.button?.window.map { .below($0.frame) } ?? .center
-        case .cursor: anchor = .cursor
-        case .center: anchor = .center
+        case .statusIcon: statusItem.button?.window.map { .below($0.frame) } ?? .center
+        case .cursor: .cursor
+        case .center: .center
         }
-        panel.toggle(at: anchor, clicked: clicked)
     }
 
     /// Left click opens the panel, like PasteNow. Right click, ⌃-click or ⌥-click opens the menu.
