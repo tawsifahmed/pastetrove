@@ -73,10 +73,10 @@ final class Model: ObservableObject {
     @Published private(set) var shown: [Item] = []
     @Published var selected = 0
     @Published var query = "" {
-        didSet { selected = 0; apply() }
+        didSet { if query != oldValue { selected = 0; apply() } }
     }
     @Published var filter = Filter.all {
-        didSet { selected = 0; apply() }
+        didSet { if filter != oldValue { selected = 0; apply() } }
     }
     @Published var layout = Settings.layout {
         didSet { Settings.layout = layout }
@@ -91,10 +91,14 @@ final class Model: ObservableObject {
     /// The item just copied with ⌘C, highlighted for a moment.
     @Published private(set) var flashID: Int64?
     private var all: [Item] = []
+    /// While the panel is closed, new copies only mark the list stale; it is read again when the panel opens.
+    private var isOpen = false
+    private var stale = true
+    /// Folded item text for search, made on the first search and kept per item.
+    private var searchText: [Int64: String] = [:]
 
     init(store: Store) {
         self.store = store
-        reload()
     }
 
     var current: Item? {
@@ -106,16 +110,36 @@ final class Model: ObservableObject {
 
     /// Keeps the same item selected when a new copy arrives while the panel is open.
     func reload() {
+        guard isOpen else {
+            stale = true
+            return
+        }
         let keep = current?.id
-        all = store.items()
+        load()
         apply()
         if let keep, let index = shown.firstIndex(where: { $0.id == keep }) { selected = index }
     }
 
-    func reset() {
+    /// The panel opens on the full, fresh list with the first item selected.
+    func open() {
+        isOpen = true
+        if stale { load() }
         filter = .all
         query = ""
+        apply()
+        selected = 0
         opened += 1
+    }
+
+    func close() {
+        isOpen = false
+    }
+
+    private func load() {
+        all = store.items()
+        stale = false
+        let ids = Set(all.map(\.id))
+        searchText = searchText.filter { ids.contains($0.key) }
     }
 
     func move(_ step: Int) {
@@ -159,14 +183,24 @@ final class Model: ObservableObject {
     }
 
     /// In-memory search: every word must appear, case and accents ignored.
+    /// Text is folded once per item, so each key press is a plain literal search.
     private func apply() {
-        let terms = query.split(separator: " ")
+        let terms = query.split(separator: " ").map { Self.fold(String($0)) }
         shown = all.filter { item in
-            filter.matches(item) && terms.allSatisfy {
-                item.text.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
-            }
+            filter.matches(item) && terms.allSatisfy { searchKey(item).range(of: $0, options: .literal) != nil }
         }
         selected = min(selected, max(shown.count - 1, 0))
+    }
+
+    private func searchKey(_ item: Item) -> String {
+        if let hit = searchText[item.id] { return hit }
+        let key = Self.fold(item.text)
+        searchText[item.id] = key
+        return key
+    }
+
+    static func fold(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
     }
 }
 
@@ -209,23 +243,14 @@ final class PanelController: NSObject, NSWindowDelegate {
         // Drag any edge to resize; the size is remembered.
         panel.minSize = NSSize(width: 340, height: 420)
         panel.maxSize = NSSize(width: 980, height: 2400)
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
         panel.delegate = self
-        let host = NSHostingView(rootView: PanelView(
+        panel.float(PanelView(
             model: model,
             pick: { [weak self] item, mode in self?.pick(item, mode) },
             copy: { [weak self] item in self?.copy(item) },
             command: { [weak self] in self?.run($0) },
             togglePreview: { [weak self] in self?.togglePreview() }
         ))
-        host.sizingOptions = []
-        panel.contentView = host
     }
 
     func toggle(at anchor: Anchor) {
@@ -238,7 +263,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func show(at anchor: Anchor) {
-        model.reset()
+        model.open()
         let point: NSPoint
         if case let .below(rect) = anchor {
             point = NSPoint(x: rect.midX, y: rect.minY)
@@ -280,6 +305,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         preview.hide()
         panel.orderOut(nil)
         model.commandHeld = false
+        model.close()
         hiddenAt = Date()
     }
 
@@ -425,16 +451,7 @@ final class PreviewController {
             backing: .buffered,
             defer: false
         )
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = true
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        let host = NSHostingView(rootView: PreviewWindow(model: model))
-        host.sizingOptions = []
-        panel.contentView = host
+        panel.float(PreviewWindow(model: model))
     }
 
     func toggle(beside main: NSRect) {
@@ -456,15 +473,27 @@ final class PreviewController {
     }
 }
 
+extension NSPanel {
+    /// Clear, shadowed, floating on every Space, and showing `view`.
+    func float(_ view: some View) {
+        isOpaque = false
+        backgroundColor = .clear
+        hasShadow = true
+        level = .floating
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+        hidesOnDeactivate = false
+        isReleasedWhenClosed = false
+        let host = NSHostingView(rootView: view)
+        host.sizingOptions = []
+        contentView = host
+    }
+}
+
 struct PreviewWindow: View {
     @ObservedObject var model: Model
 
     var body: some View {
-        PreviewPane(item: model.current, store: model.store)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(PanelBackground())
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+        PreviewPane(item: model.current, store: model.store).panelChrome()
     }
 }
 
@@ -484,10 +513,7 @@ struct PanelView: View {
             Divider()
             footer
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(PanelBackground())
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+        .panelChrome()
         .onAppear { searchFocused = true }
         .onChange(of: model.opened) { searchFocused = true }
     }
@@ -686,7 +712,7 @@ struct PanelView: View {
             .help("Layout (⌘L)")
             .frame(width: 60, alignment: .leading)
             Spacer()
-            Text("\(model.shown.count) items")
+            Text(counted(model.shown.count, "item"))
             Spacer()
             Button(action: togglePreview) { Image(systemName: "eye") }
                 .buttonStyle(.plain)
@@ -797,6 +823,14 @@ struct Badge: View {
 }
 
 extension View {
+    /// The panel's rounded glass window look.
+    func panelChrome() -> some View {
+        frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(PanelBackground())
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+    }
+
     /// Soft accent glow around the selected item.
     func selectionGlow(_ selected: Bool, radius: CGFloat = 8) -> some View {
         shadow(color: selected ? Color.accentColor.opacity(0.45) : .clear, radius: radius)
@@ -867,7 +901,7 @@ struct RichRow: View {
             }
             .font(.system(size: 12))
             .foregroundStyle(.secondary)
-            ClipContent(item: item, store: store, lines: 5, imageHeight: 170, large: true)
+            ClipContent(item: item, store: store, lines: 5, large: true)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -904,7 +938,7 @@ struct Card: View {
                     // The clear frame sets the size; the image fills it whatever the column width is.
                     Color.clear.overlay(Image(nsImage: thumb).resizable().scaledToFill()).clipped()
                 } else {
-                    ClipContent(item: item, store: store, lines: 7, imageHeight: 100).padding(8)
+                    ClipContent(item: item, store: store, lines: 7).padding(8)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 124, maxHeight: 124, alignment: .topLeading)
@@ -926,7 +960,6 @@ struct ClipContent: View {
     let item: Item
     let store: Store
     let lines: Int
-    let imageHeight: CGFloat
     /// Rich List uses larger type than the compact grid cards.
     var large = false
 
@@ -964,7 +997,7 @@ struct ClipContent: View {
                 if let thumb = Cache.thumbnail(item, store: store, size: 600) {
                     CoverImage(image: thumb, cornerRadius: 10)
                         .frame(maxWidth: .infinity)
-                        .frame(height: imageHeight)
+                        .frame(height: 170)
                 }
                 Text(item.text).font(.system(size: 10)).foregroundStyle(.secondary)
             case .file:
@@ -986,6 +1019,11 @@ struct ClipContent: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
+
+/// "1 item", "2 items".
+func counted(_ count: Int, _ noun: String) -> String {
+    "\(count) \(noun)\(count == 1 ? "" : "s")"
 }
 
 extension Item {
@@ -1078,9 +1116,8 @@ struct PreviewPane: View {
     private func details(_ item: Item) -> String {
         switch item.kind {
         case .text:
-            let text = Cache.fullText(item, store: store)
             let label = ["Text", "Code", "Markdown", "Color"][item.style.rawValue]
-            return "\(label) · \(text.count) chars · \(text.split(whereSeparator: \.isNewline).count) lines ·"
+            return "\(label) · \(Cache.textSize(item, store: store)) ·"
         case .link: return "Link ·"
         case .image: return "\(item.text) ·"
         case .file:
@@ -1156,6 +1193,11 @@ enum Cache {
         cache.countLimit = 30
         return cache
     }()
+    private static let sizes: NSCache<NSNumber, NSString> = {
+        let cache = NSCache<NSNumber, NSString>()
+        cache.countLimit = 30
+        return cache
+    }()
     private static let fileIcons: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         cache.countLimit = 300
@@ -1224,6 +1266,16 @@ enum Cache {
             .map { String($0.prefix(200_000)) } ?? item.text
         texts.setObject(text as NSString, forKey: key)
         return text
+    }
+
+    /// "N chars · N lines", counted once per item instead of on every redraw of the preview.
+    static func textSize(_ item: Item, store: Store) -> String {
+        let key = NSNumber(value: item.id)
+        if let hit = sizes.object(forKey: key) { return hit as String }
+        let text = fullText(item, store: store)
+        let size = "\(counted(text.count, "char")) · \(counted(text.split(whereSeparator: \.isNewline).count, "line"))"
+        sizes.setObject(size as NSString, forKey: key)
+        return size
     }
 
     private static func appURL(_ bundleID: String?) -> URL? {

@@ -9,6 +9,8 @@ final class Monitor {
     private let store: Store
     private let pasteboard = NSPasteboard.general
     private var lastChange: Int
+    /// Kept alive while its image is on the clipboard.
+    private var tiffProvider: TIFFProvider?
 
     private static let fileList = "io.github.tawsifahmed.pastetrove.file-urls"
     private static let maxSize = 30_000_000
@@ -94,11 +96,14 @@ final class Monitor {
             pasteboard.writeObjects(urls as [NSURL])
         case .image:
             guard let png = data(NSPasteboard.PasteboardType.png.rawValue) else { return }
-            pasteboard.declareTypes([.png, .tiff], owner: nil)
-            pasteboard.setData(png, forType: .png)
-            if let tiff = NSBitmapImageRep(data: png)?.tiffRepresentation {
-                pasteboard.setData(tiff, forType: .tiff)
-            }
+            // TIFF is made only if an app asks for it: for a large screenshot it is tens of MB and slow to build.
+            let entry = NSPasteboardItem()
+            entry.setData(png, forType: .png)
+            let provider = TIFFProvider(png)
+            tiffProvider = provider
+            entry.setDataProvider(provider, forTypes: [.tiff])
+            pasteboard.clearContents()
+            pasteboard.writeObjects([entry])
         case .text, .link:
             let use = plain ? reps.filter { $0.0 == NSPasteboard.PasteboardType.string.rawValue } : reps
             guard !use.isEmpty else { return }
@@ -119,7 +124,7 @@ final class Monitor {
         return NSBitmapImageRep(cgImage: cgImage).representation(using: .jpeg, properties: [.compressionFactor: 0.8])
     }
 
-    private static func isLink(_ string: String) -> Bool {
+    static func isLink(_ string: String) -> Bool {
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.contains(where: \.isWhitespace),
               let url = URL(string: trimmed),
@@ -130,5 +135,20 @@ final class Monitor {
 
     private static func png(_ tiff: Data) -> Data? {
         NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+    }
+}
+
+/// Builds the TIFF copy of a pasted image on request.
+private final class TIFFProvider: NSObject, NSPasteboardItemDataProvider {
+    private let png: Data
+
+    init(_ png: Data) {
+        self.png = png
+    }
+
+    func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
+        if let tiff = NSBitmapImageRep(data: png)?.tiffRepresentation {
+            item.setData(tiff, forType: type)
+        }
     }
 }
