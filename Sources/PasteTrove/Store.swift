@@ -215,10 +215,6 @@ final class Store {
         return out
     }
 
-    func touch(_ id: Int64) {
-        query("UPDATE items SET created = ? WHERE id = ?", [Date().timeIntervalSince1970, id])
-    }
-
     func delete(_ id: Int64) {
         query("DELETE FROM items WHERE id = ?", [id])
     }

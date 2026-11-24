@@ -82,8 +82,8 @@ final class Monitor {
     }
 
     /// Puts an item back on the clipboard. `plain` drops rich text and keeps only the plain string.
-    /// `touch` moves the item to the top of the history.
-    func write(_ item: Item, plain: Bool, touch: Bool = true) {
+    /// The item keeps its place in the history.
+    func write(_ item: Item, plain: Bool) {
         let reps = store.reps(item.id)
         func data(_ type: String) -> Data? { reps.first { $0.0 == type }?.1 }
         // Each branch checks its data before touching the clipboard, so a broken item never empties it.
@@ -113,7 +113,6 @@ final class Monitor {
             }
         }
         lastChange = pasteboard.changeCount
-        if touch { store.touch(item.id) }
     }
 
     /// Small JPEG saved next to each image, so lists never decode the full screenshot.

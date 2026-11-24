@@ -45,3 +45,36 @@ func age(seconds: Double, label: String) {
     #expect(counted(0, "item") == "0 items")
     #expect(counted(17, "line") == "17 lines")
 }
+
+@Test func reopensWhereYouLeftOffUntilANewCopy() throws {
+    setenv("PASTETROVE_DATA_DIR", NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)", 1)
+    let store = try Store()
+    func copy(_ text: String) {
+        store.save(Capture(kind: .text, text: text, key: Data(text.utf8), reps: [("public.utf8-plain-text", Data(text.utf8))]),
+                   app: nil, limit: 100, imageLimit: 10)
+    }
+    (1...10).forEach { copy("item \($0)") }
+    let model = Model(store: store)
+
+    model.open()
+    #expect(model.selected == 0 && model.toTop == 1)
+    model.selected = 6
+    model.close()
+
+    // Nothing new: same selection, no jump.
+    model.open()
+    #expect(model.selected == 6 && model.toTop == 1)
+    model.close()
+
+    // A new copy while closed: full list, newest first, jump to top.
+    copy("item 11")
+    model.reload()
+    model.open()
+    #expect(model.selected == 0 && model.toTop == 2 && model.current?.text == "item 11")
+
+    // A search left on: cleared on the next open, back to the top.
+    model.query = "item 3"
+    model.close()
+    model.open()
+    #expect(model.query.isEmpty && model.shown.count == 11 && model.toTop == 3)
+}
