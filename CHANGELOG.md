@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.1.2 - 2026-11-24
+
+### Features
+- **panel:** Opens where you left off, with the same scroll position and selection. After a new copy, it opens at the top with the new item selected.
+- **paste:** Pasting an item keeps its place in the history.
+- **lists:** Older items show short ages: 1w, 1mo and 1y.
+
+### Fixes
+- **panel:** Readable in Light mode, and the first row no longer touches the top edge when the panel opens.
+- **search:** Much faster with a large history: about 23 ms per key at 10,000 items (was 287 ms).
+- **speed:** Copies made while the panel is closed cost almost nothing. Pasting a large image no longer builds a large TIFF copy each time. ⌘1–⌘0 writes the clipboard once.
+- **keys:** Pressing the shortcut twice quickly opens the panel again.
+- **lists:** The "Copied" outline matches the row corners in Plain List. File rows no longer read the disk on every redraw. Counts say "1 item" and "1 line".
+
 ## 0.1.1 - 2026-11-24
 
 ### Features
