@@ -33,7 +33,7 @@ enum Layout: String, CaseIterable {
 
     var cornerRadius: CGFloat {
         switch self {
-        case .plain: 6
+        case .plain: 7
         case .rich: 9
         case .grid: 10
         }
@@ -228,11 +228,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.contentView = host
     }
 
-    func toggle(at anchor: Anchor) {
+    /// `clicked`: a click on the status icon first hides an open panel by taking focus, so it must not reopen it right away.
+    func toggle(at anchor: Anchor, clicked: Bool = false) {
         if panel.isVisible {
             hide()
-        } else if Date().timeIntervalSince(hiddenAt) > 0.3 {
-            // A click on the status icon first hides the panel by taking focus; do not reopen it right away.
+        } else if !clicked || Date().timeIntervalSince(hiddenAt) > 0.3 {
             show(at: anchor)
         }
     }
@@ -820,7 +820,7 @@ struct PlainRow: View {
         .padding(.horizontal, 12)
         .frame(height: 52)
         .background(
-            RoundedRectangle(cornerRadius: 7, style: .continuous)
+            RoundedRectangle(cornerRadius: Layout.plain.cornerRadius, style: .continuous)
                 .fill(selected ? Color.accentColor.opacity(0.3) : Color.clear)
         )
         .selectionGlow(selected, radius: 6)
@@ -872,7 +872,7 @@ struct RichRow: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: Layout.rich.cornerRadius, style: .continuous)
                 .fill(selected ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.05))
         )
         .selectionGlow(selected)
@@ -910,10 +910,10 @@ struct Card: View {
             .frame(maxWidth: .infinity, minHeight: 124, maxHeight: 124, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(RoundedRectangle(cornerRadius: Layout.grid.cornerRadius, style: .continuous).fill(Color.primary.opacity(0.05)))
+        .clipShape(RoundedRectangle(cornerRadius: Layout.grid.cornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: Layout.grid.cornerRadius, style: .continuous)
                 .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.08), lineWidth: selected ? 2.5 : 1)
         )
         .selectionGlow(selected, radius: 10)
@@ -1145,6 +1145,8 @@ struct VisualEffect: NSViewRepresentable {
 enum Cache {
     private static var icons: [String: NSImage] = [:]
     private static var names: [String: String] = [:]
+    /// Files with no thumbnail (not an image, too large, unreadable), so redraws never ask the disk again.
+    private static var noThumbnail: Set<String> = []
     /// Decoded thumbnails, bounded by memory; the cost of each is its pixel size.
     private static let images: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
@@ -1205,14 +1207,18 @@ enum Cache {
     }
 
     static func fileThumbnail(_ url: URL, size: Int) -> NSImage? {
-        guard UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true else { return nil }
+        let key = "file-\(url.path)-\(size)"
+        if let hit = images.object(forKey: key as NSString) { return hit }
+        guard !noThumbnail.contains(key) else { return nil }
         // Skip huge files: decoding them would stall the list.
-        let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? .max
-        guard bytes < 25_000_000 else { return nil }
-        let key = "file-\(url.path)-\(size)" as NSString
-        if let hit = images.object(forKey: key) { return hit }
-        guard let image = scaled(CGImageSourceCreateWithURL(url as CFURL, nil), size) else { return nil }
-        images.setObject(image, forKey: key, cost: cost(image))
+        guard UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true,
+              let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes < 25_000_000,
+              let image = scaled(CGImageSourceCreateWithURL(url as CFURL, nil), size)
+        else {
+            noThumbnail.insert(key)
+            return nil
+        }
+        images.setObject(image, forKey: key as NSString, cost: cost(image))
         return image
     }
 

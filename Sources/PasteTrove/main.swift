@@ -167,14 +167,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         layer.add(flip, forKey: "flip")
     }
 
-    private func togglePanel(placement: Placement) {
+    private func togglePanel(placement: Placement, clicked: Bool = false) {
         let anchor: PanelController.Anchor
         switch placement {
         case .statusIcon: anchor = statusItem.button?.window.map { .below($0.frame) } ?? .center
         case .cursor: anchor = .cursor
         case .center: anchor = .center
         }
-        panel.toggle(at: anchor)
+        panel.toggle(at: anchor, clicked: clicked)
     }
 
     /// Left click opens the panel, like PasteNow. Right click, ⌃-click or ⌥-click opens the menu.
@@ -188,7 +188,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             statusItem.button?.performClick(nil)
             statusItem.menu = nil
         } else {
-            togglePanel(placement: .statusIcon)
+            togglePanel(placement: .statusIcon, clicked: true)
         }
     }
 
