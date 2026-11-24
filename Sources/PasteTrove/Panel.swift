@@ -531,6 +531,8 @@ struct PanelView: View {
         .padding(12)
     }
 
+    private static let topAnchor = "list-top"
+
     private var gearMenu: some View {
         Menu {
             Button("About PasteTrove") { command(.about) }
@@ -565,16 +567,20 @@ struct PanelView: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    Group {
-                        if model.layout == .grid {
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: model.gridColumns), spacing: 10) {
-                                cells
+                    VStack(spacing: 0) {
+                        // Scroll target above the padding, so "back to top" keeps the gap above the first row.
+                        Color.clear.frame(height: 0).id(Self.topAnchor)
+                        Group {
+                            if model.layout == .grid {
+                                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: model.gridColumns), spacing: 10) {
+                                    cells
+                                }
+                            } else {
+                                LazyVStack(spacing: model.layout == .rich ? 6 : 1) { cells }
                             }
-                        } else {
-                            LazyVStack(spacing: model.layout == .rich ? 6 : 1) { cells }
                         }
+                        .padding(model.layout == .grid ? 12 : 8)
                     }
-                    .padding(model.layout == .grid ? 12 : 8)
                 }
                 .coordinateSpace(name: "list")
                 .onPreferenceChange(FirstVisibleKey.self) { index in
@@ -582,10 +588,15 @@ struct PanelView: View {
                     if model.firstVisible != first { model.firstVisible = first }
                 }
                 .onChange(of: model.opened) {
-                    if let id = model.shown.first?.id { proxy.scrollTo(id, anchor: .top) }
+                    proxy.scrollTo(Self.topAnchor, anchor: .top)
                 }
                 .onChange(of: model.current?.id) {
-                    if let id = model.current?.id { proxy.scrollTo(id) }
+                    // The first row (or first grid row) scrolls to the true top, padding included.
+                    if model.selected < model.columns {
+                        proxy.scrollTo(Self.topAnchor, anchor: .top)
+                    } else if let id = model.current?.id {
+                        proxy.scrollTo(id)
+                    }
                 }
             }
         }
@@ -1104,12 +1115,15 @@ struct TextPreview: NSViewRepresentable {
     }
 }
 
-/// Near-black glass: the blur stays, but a dark layer keeps colorful windows behind from tinting the panel.
+/// Frosted glass with a solid tint, so colorful windows behind never show through:
+/// near-black in Dark mode, near-white in Light mode, following the system appearance.
 struct PanelBackground: View {
+    @Environment(\.colorScheme) private var scheme
+
     var body: some View {
         ZStack {
             VisualEffect()
-            Color.black.opacity(0.62)
+            scheme == .dark ? Color.black.opacity(0.62) : Color.white.opacity(0.72)
         }
     }
 }
