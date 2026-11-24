@@ -62,3 +62,45 @@ BrandMark.fill(BrandMark.front, NSColor(cgColor: color(0xF4F4F5))!, in: context)
 BrandMark.fill(BrandMark.bevel, NSColor(cgColor: color(0xB9B9BE, 0.55))!, in: context)
 
 try! rep.representation(using: .png, properties: [:])!.write(to: URL(fileURLWithPath: output))
+
+// Optional second argument: the same icon as SVG (vector, sharp at any size), for the README.
+if CommandLine.arguments.count > 2 {
+    func svg(_ path: CGPath) -> String {
+        var d = ""
+        path.applyWithBlock { element in
+            let p = element.pointee.points
+            let xy = { (i: Int) in String(format: "%.2f %.2f", p[i].x, p[i].y) }
+            switch element.pointee.type {
+            case .moveToPoint: d += "M\(xy(0))"
+            case .addLineToPoint: d += "L\(xy(0))"
+            case .closeSubpath: d += "Z"
+            default: break
+            }
+        }
+        return d
+    }
+    let svgText = """
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="1024" height="1024">
+          <defs>
+            <linearGradient id="body" x1="50" y1="9" x2="50" y2="91" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#2B2B2F"/><stop offset="1" stop-color="#0F0F11"/>
+            </linearGradient>
+            <radialGradient id="light" cx="50" cy="9" r="74" gradientUnits="userSpaceOnUse">
+              <stop offset="0" stop-color="#fff" stop-opacity=".14"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/>
+            </radialGradient>
+            <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+              <feDropShadow dx="0" dy="1.2" stdDeviation="1.4" flood-color="#000" flood-opacity=".45"/>
+            </filter>
+          </defs>
+          <path d="\(svg(tile))" fill="#1A1A1D" filter="url(#shadow)"/>
+          <path d="\(svg(tile))" fill="url(#body)"/>
+          <path d="\(svg(tile))" fill="url(#light)"/>
+          <path d="\(svg(tile))" fill="none" stroke="#fff" stroke-opacity=".1" stroke-width=".6"/>
+          <path d="\(svg(BrandMark.side))" fill="#4A4A50" fill-rule="evenodd"/>
+          <path d="\(svg(BrandMark.front))" fill="#F4F4F5" fill-rule="evenodd"/>
+          <path d="\(svg(BrandMark.bevel))" fill="#B9B9BE" fill-opacity=".55"/>
+        </svg>
+
+        """
+    try! svgText.write(toFile: CommandLine.arguments[2], atomically: true, encoding: .utf8)
+}

@@ -1,8 +1,7 @@
-<p align="center">
-  <img src="docs/images/icon.png" width="128" height="128" alt="PasteTrove icon">
-</p>
-
-<h1 align="center">PasteTrove</h1>
+<h1 align="center">
+  <img src="docs/images/icon.svg" width="112" height="112" alt=""><br>
+  PasteTrove
+</h1>
 
 <p align="center">
   A fast, local clipboard history for macOS.<br>
@@ -17,6 +16,10 @@
   <a href="https://github.com/tawsifahmed/pastetrove/releases">Releases</a>
   ·
   <a href="https://github.com/tawsifahmed/pastetrove/issues">Report an issue</a>
+</p>
+
+<p align="center">
+  <img src="docs/images/hero.png" width="100%" alt="The PasteTrove panel in its three layouts: Rich List, Grid View and Plain List">
 </p>
 
 ---
@@ -81,6 +84,10 @@ Pick a layout from the button in the bottom-left corner of the panel, or press �
 
 Press **Space** (with an empty search field) or **⌘Y** to open a large preview beside the panel.
 
+<p align="center">
+  <img src="docs/images/preview.png" width="80%" alt="A large preview of the selected screenshot beside the panel">
+</p>
+
 ### Filters
 
 All, Text, Code, Links, Images, Files and Pinned. Press ⇥ to go to the next filter.
@@ -112,6 +119,10 @@ Click an item to select it, double-click to paste. Right-click an item for Paste
 The gear menu has About, Settings, Pause Recording, Check for Updates, Clear History and Quit. Right-click the menu bar icon for the same menu.
 
 ### Settings
+
+<p align="center">
+  <img src="docs/images/windows.png" width="90%" alt="The About window and the Settings window">
+</p>
 
 - **Open PasteTrove**: click the button, then press the new shortcut. It needs ⌘, ⌥ or ⌃. Press esc to cancel.
 - **When appears**: where the shortcut opens the panel: near the menu bar icon (default), near the cursor, or in the center of the screen.

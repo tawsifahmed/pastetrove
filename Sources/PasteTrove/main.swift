@@ -72,8 +72,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// `pastetrove://open` opens the panel, for Shortcuts, Raycast or scripts.
     /// Optional query items: `layout=plain|rich|grid`, `preview=1`.
+    /// `pastetrove://settings` and `pastetrove://about` open those windows.
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let url = urls.first, url.host == "open" else { return }
+        guard let url = urls.first else { return }
+        switch url.host {
+        case "settings": return openSettings()
+        case "about": return openAbout()
+        case "open": break
+        default: return
+        }
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
         if let layout = query.first(where: { $0.name == "layout" })?.value.flatMap(Layout.init(rawValue:)) {
             model.layout = layout
