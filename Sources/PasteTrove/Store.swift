@@ -32,11 +32,15 @@ struct Item: Identifiable, Equatable {
 
     var age: String {
         let seconds = Date().timeIntervalSince1970 - created
+        let day = 86400.0
         switch seconds {
         case ..<60: return "now"
         case ..<3600: return "\(Int(seconds / 60))m"
-        case ..<86400: return "\(Int(seconds / 3600))h"
-        default: return "\(Int(seconds / 86400))d"
+        case ..<day: return "\(Int(seconds / 3600))h"
+        case ..<(7 * day): return "\(Int(seconds / day))d"
+        case ..<(30 * day): return "\(Int(seconds / (7 * day)))w"
+        case ..<(365 * day): return "\(Int(seconds / (30 * day)))mo"
+        default: return "\(Int(seconds / (365 * day)))y"
         }
     }
 }
