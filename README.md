@@ -164,7 +164,7 @@ scripts/build.sh install         # builds, copies PasteTrove.app to /Application
 | Part | File | What it does |
 |---|---|---|
 | Clipboard watcher | `Monitor.swift` | Reads `NSPasteboard.changeCount` four times a second (macOS has no change event). Saves new content with the app it came from. Writes items back for pasting. |
-| Storage | `Store.swift` | SQLite. `items` has the small rows the list needs. `reps` has the raw clipboard data per type, loaded only to preview or paste. The same content copied again moves to the top instead of making a duplicate. |
+| Storage | `Store.swift` | SQLite. `items` has the small rows the list needs. `reps` has the raw clipboard data per type, loaded only to preview or paste. The same content copied again moves to the top instead of making a duplicate. Pasting an item keeps its place. |
 | Text types | `TextStyle.swift` | Recognizes code, Markdown and colors once, when an item is saved. |
 | Panel | `Panel.swift` | A non-activating floating panel, so the app you came from stays active and receives the paste. Three layouts, preview window, in-memory search. |
 | Shortcut and settings | `Settings.swift` | Global hotkey through Carbon `RegisterEventHotKey`, shortcut recorder, limits, launch at login through `SMAppService`. |

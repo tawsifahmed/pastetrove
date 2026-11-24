@@ -31,8 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         panel = PanelController(model: model)
         panel.onPick = { [weak self] item, mode in self?.use(item, mode) }
-        // ⌘C in the panel keeps the list order still, so the copied item does not jump away.
-        panel.onCopy = { [weak self] item in self?.monitor.write(item, plain: false, touch: false) }
+        panel.onCopy = { [weak self] item in self?.monitor.write(item, plain: false) }
         panel.onCommand = { [weak self] in self?.run($0) }
 
         hotkey = Hotkey { [weak self] in self?.togglePanel(placement: Settings.placement) }
@@ -112,7 +111,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func use(_ item: Item, _ mode: PickMode) {
         monitor.write(item, plain: mode == .plain)
-        model.reload()
         guard mode != .copy else { return }
         // Without Accessibility access the item is only copied; you press ⌘V yourself.
         guard AXIsProcessTrusted() else {

@@ -81,7 +81,10 @@ final class Model: ObservableObject {
     @Published var layout = Settings.layout {
         didSet { Settings.layout = layout }
     }
+    /// Counts opens, to focus the search field.
     @Published private(set) var opened = 0
+    /// Counts jumps back to the top of the list.
+    @Published private(set) var toTop = 0
     /// ⌘1–9 badges show only while ⌘ is held, numbered from the first visible item.
     @Published var paused = false
     /// Grid View columns; more fit as the panel gets wider.
@@ -120,15 +123,18 @@ final class Model: ObservableObject {
         if let keep, let index = shown.firstIndex(where: { $0.id == keep }) { selected = index }
     }
 
-    /// The panel opens on the full, fresh list with the first item selected.
+    /// The panel opens where you left off. After a new copy, or if a search or filter was on,
+    /// it opens on the full list at the top with the newest item selected.
     func open() {
         isOpen = true
+        opened += 1
+        guard stale || !query.isEmpty || filter != .all else { return }
         if stale { load() }
         filter = .all
         query = ""
         apply()
         selected = 0
-        opened += 1
+        toTop += 1
     }
 
     func close() {
@@ -613,7 +619,7 @@ struct PanelView: View {
                     let first = index == Int.max ? 0 : index
                     if model.firstVisible != first { model.firstVisible = first }
                 }
-                .onChange(of: model.opened) {
+                .onChange(of: model.toTop) {
                     proxy.scrollTo(Self.topAnchor, anchor: .top)
                 }
                 .onChange(of: model.current?.id) {
