@@ -166,7 +166,11 @@ scripts/build.sh install         # builds, copies PasteTrove.app to /Application
 | Clipboard watcher | `Monitor.swift` | Reads `NSPasteboard.changeCount` four times a second (macOS has no change event). Saves new content with the app it came from. Writes items back for pasting. |
 | Storage | `Store.swift` | SQLite. `items` has the small rows the list needs. `reps` has the raw clipboard data per type, loaded only to preview or paste. The same content copied again moves to the top instead of making a duplicate. Pasting an item keeps its place. |
 | Text types | `TextStyle.swift` | Recognizes code, Markdown and colors once, when an item is saved. |
-| Panel | `Panel.swift` | A non-activating floating panel, so the app you came from stays active and receives the paste. Three layouts, preview window, in-memory search. |
+| Panel | `Panel.swift` | A non-activating floating panel, so the app you came from stays active and receives the paste. Keys, list and gear menu. |
+| List state | `Model.swift` | The items shown, selection, filters, layouts and in-memory search. |
+| Rows | `Rows.swift` | Plain List rows, Rich List rows and Grid View cards. |
+| Preview | `Preview.swift` | The large preview window beside the panel. |
+| Caches | `Cache.swift` | App icons, thumbnails and text, so scrolling never reads the disk twice. |
 | Shortcut and settings | `Settings.swift` | Global hotkey through Carbon `RegisterEventHotKey`, shortcut recorder, limits, launch at login through `SMAppService`. |
 | Brand | `BrandMark.swift`, `About.swift` | The P mark for the menu bar and app icon, and the About window. |
 | App | `main.swift` | Menu bar icon, menus, copy sound and icon flip, and the ⌘V key event that pastes. |
