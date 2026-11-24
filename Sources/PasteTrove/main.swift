@@ -19,7 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             store = try Store()
         } catch {
-            fatalError("PasteTrove: \(error.localizedDescription)")
+            return showStartupError(error)
         }
         model = Model(store: store)
         monitor = Monitor(store: store)
@@ -50,6 +50,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Settings.firstRun()
         if !AXIsProcessTrusted() { requestAccessibility() }
         if !Settings.clipboardAllowed { explainClipboardAccess() }
+    }
+
+    /// A damaged or locked history file must not make a login item silently disappear.
+    private func showStartupError(_ error: Error) {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.messageText = "PasteTrove can't open its history"
+        alert.informativeText = """
+            \(error.localizedDescription)
+
+            The history is in \(Store.directory.path). Move that folder away (or delete it) and open PasteTrove again to start a new history.
+            """
+        alert.addButton(withTitle: "Show in Finder")
+        alert.addButton(withTitle: "Quit")
+        if alert.runModal() == .alertFirstButtonReturn {
+            NSWorkspace.shared.activateFileViewerSelecting([Store.directory])
+        }
+        NSApp.terminate(nil)
     }
 
     /// Without "Always Allow", macOS shows an Allow/Deny prompt on every copy PasteTrove reads.

@@ -57,6 +57,7 @@ final class Monitor {
             return Capture(kind: .file, text: urls.map(\.path).joined(separator: "\n"), key: list, reps: [(Self.fileList, list)])
         }
         if let string = pasteboard.string(forType: .string),
+           string.utf8.count < Self.maxSize,
            !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             var reps = [(NSPasteboard.PasteboardType.string.rawValue, Data(string.utf8))]
             for type in [NSPasteboard.PasteboardType.rtf, .html] where types.contains(type.rawValue) {
@@ -66,7 +67,9 @@ final class Monitor {
             }
             return Capture(kind: Self.isLink(string) ? .link : .text, text: string, key: Data(string.utf8), reps: reps)
         }
-        if let png = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff).flatMap(Self.png),
+        // TIFF is uncompressed, so allow it to be larger, but check before converting it.
+        if let png = pasteboard.data(forType: .png)
+            ?? pasteboard.data(forType: .tiff).flatMap({ $0.count < Self.maxSize * 4 ? Self.png($0) : nil }),
            png.count < Self.maxSize,
            let image = NSBitmapImageRep(data: png) {
             var reps = [(NSPasteboard.PasteboardType.png.rawValue, png)]
@@ -81,14 +84,16 @@ final class Monitor {
     func write(_ item: Item, plain: Bool, touch: Bool = true) {
         let reps = store.reps(item.id)
         func data(_ type: String) -> Data? { reps.first { $0.0 == type }?.1 }
-        pasteboard.clearContents()
+        // Each branch checks its data before touching the clipboard, so a broken item never empties it.
         switch item.kind {
         case .file:
             let urls = data(Self.fileList).flatMap { String(data: $0, encoding: .utf8) }?
                 .split(separator: "\n").compactMap { URL(string: String($0)) } ?? []
+            guard !urls.isEmpty else { return }
+            pasteboard.clearContents()
             pasteboard.writeObjects(urls as [NSURL])
         case .image:
-            guard let png = data(NSPasteboard.PasteboardType.png.rawValue) else { break }
+            guard let png = data(NSPasteboard.PasteboardType.png.rawValue) else { return }
             pasteboard.declareTypes([.png, .tiff], owner: nil)
             pasteboard.setData(png, forType: .png)
             if let tiff = NSBitmapImageRep(data: png)?.tiffRepresentation {
@@ -96,6 +101,7 @@ final class Monitor {
             }
         case .text, .link:
             let use = plain ? reps.filter { $0.0 == NSPasteboard.PasteboardType.string.rawValue } : reps
+            guard !use.isEmpty else { return }
             pasteboard.declareTypes(use.map { NSPasteboard.PasteboardType($0.0) }, owner: nil)
             for (type, data) in use {
                 pasteboard.setData(data, forType: NSPasteboard.PasteboardType(type))

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.1.1 - 2026-11-24
+
+### Features
+- **panel:** Near-black glass background, so colorful windows behind no longer tint the panel.
+- **panel:** Resizable: drag any edge, and the size is remembered. Grid View adds columns as the panel gets wider.
+- **lists:** Bigger rows, icons and text. Images fill a fixed rounded box (cropped to fit), so tall and wide screenshots line up.
+- **keys:** ⌘0 pastes the tenth visible item. While ⌘ is held, the numbers glow and other items fade back. ⌘1–9 and ⌘0 show the "Copied" flash before pasting.
+- **links:** `pastetrove://settings` and `pastetrove://about` open those windows.
+
+### Fixes
+- **paste:** A damaged item never empties your clipboard, and a failed save is undone completely.
+- **panel:** The selection stays on the same item when a copy arrives while the panel is open.
+- **search:** Return commits Japanese, Chinese and other input-method text instead of pasting.
+- **keys:** ⌘+number no longer pastes into another app if you switch apps during the flash.
+- **speed:** Lighter history loading, a memory-bounded image cache, cached file icons, no thumbnails for very large files, lighter database writes.
+- **startup:** If the history file can't be opened, PasteTrove explains it instead of quitting silently.
+
 ## 0.1.0 - 2026-11-24
 
 First release.

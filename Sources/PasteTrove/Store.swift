@@ -79,6 +79,7 @@ final class Store {
         sqlite3_exec(db, """
             PRAGMA auto_vacuum = INCREMENTAL;
             PRAGMA journal_mode = WAL;
+            PRAGMA synchronous = NORMAL;
             PRAGMA foreign_keys = ON;
             CREATE TABLE IF NOT EXISTS items (
                 id INTEGER PRIMARY KEY,
@@ -115,9 +116,10 @@ final class Store {
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
     }
 
+    /// The list rows. Text is cut to 2,000 characters for the list and search; preview and paste read the full data from `reps`.
     func items() -> [Item] {
         var out: [Item] = []
-        query("SELECT id, kind, style, text, app, created, pinned FROM items ORDER BY pinned DESC, created DESC") { st in
+        query("SELECT id, kind, style, substr(text, 1, 2000), app, created, pinned FROM items ORDER BY pinned DESC, created DESC") { st in
             out.append(Item(
                 id: sqlite3_column_int64(st, 0),
                 kind: Kind(rawValue: Int(sqlite3_column_int(st, 1))) ?? .text,
@@ -156,18 +158,25 @@ final class Store {
         }
         sqlite3_exec(db, "BEGIN", nil, nil, nil)
         let style = clip.kind == .text ? TextStyle(clip.text) : .plain
-        query("INSERT INTO items (hash, kind, style, text, app, created) VALUES (?, ?, ?, ?, ?, ?)",
-              [hash, clip.kind.rawValue, style.rawValue, String(clip.text.prefix(20_000)), app, now])
+        // All or nothing: an item without its data could not be pasted.
+        guard query("INSERT INTO items (hash, kind, style, text, app, created) VALUES (?, ?, ?, ?, ?, ?)",
+                    [hash, clip.kind.rawValue, style.rawValue, String(clip.text.prefix(20_000)), app, now])
+        else { return rollback() }
         let id = sqlite3_last_insert_rowid(db)
         for (type, data) in clip.reps {
-            query("INSERT INTO reps (item_id, type, data) VALUES (?, ?, ?)", [id, type, data])
+            guard query("INSERT INTO reps (item_id, type, data) VALUES (?, ?, ?)", [id, type, data]) else { return rollback() }
         }
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
         trim(limit: limit, imageLimit: imageLimit)
     }
 
+    private func rollback() {
+        sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+    }
+
     /// Drops the oldest unpinned items over the limits. Images get a separate, smaller limit because they are large.
     func trim(limit: Int, imageLimit: Int) {
+        let before = sqlite3_total_changes(db)
         query("""
             DELETE FROM items WHERE pinned = 0 AND kind = ? AND id NOT IN
             (SELECT id FROM items WHERE pinned = 0 AND kind = ? ORDER BY created DESC LIMIT ?)
@@ -176,7 +185,10 @@ final class Store {
             DELETE FROM items WHERE pinned = 0 AND id NOT IN
             (SELECT id FROM items WHERE pinned = 0 ORDER BY created DESC LIMIT ?)
             """, [limit])
-        sqlite3_exec(db, "PRAGMA incremental_vacuum", nil, nil, nil)
+        // Give space back only when something was deleted.
+        if sqlite3_total_changes(db) > before {
+            sqlite3_exec(db, "PRAGMA incremental_vacuum", nil, nil, nil)
+        }
     }
 
     func reps(_ id: Int64) -> [(String, Data)] {
@@ -216,9 +228,11 @@ final class Store {
         sqlite3_exec(db, "PRAGMA incremental_vacuum", nil, nil, nil)
     }
 
-    private func query(_ sql: String, _ args: [Any?] = [], row: ((OpaquePointer) -> Void)? = nil) {
+    /// Runs one statement. Returns false when SQLite reports an error.
+    @discardableResult
+    private func query(_ sql: String, _ args: [Any?] = [], row: ((OpaquePointer) -> Void)? = nil) -> Bool {
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let st = statement else { return }
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let st = statement else { return false }
         defer { sqlite3_finalize(st) }
         for (index, arg) in args.enumerated() {
             let n = Int32(index + 1)
@@ -232,7 +246,12 @@ final class Store {
             default: sqlite3_bind_null(st, n)
             }
         }
-        while sqlite3_step(st) == SQLITE_ROW { row?(st) }
+        var result = sqlite3_step(st)
+        while result == SQLITE_ROW {
+            row?(st)
+            result = sqlite3_step(st)
+        }
+        return result == SQLITE_DONE
     }
 
     private static func string(_ st: OpaquePointer, _ column: Int32) -> String? {

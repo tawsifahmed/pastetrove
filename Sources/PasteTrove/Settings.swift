@@ -23,6 +23,18 @@ enum Settings {
         set { defaults.set(try? JSONEncoder().encode(newValue), forKey: "shortcut") }
     }
 
+    /// The panel's size, remembered after you resize it.
+    static var panelSize: NSSize {
+        get {
+            let width = defaults.double(forKey: "panelWidth"), height = defaults.double(forKey: "panelHeight")
+            return width > 0 && height > 0 ? NSSize(width: width, height: height) : NSSize(width: 460, height: 820)
+        }
+        set {
+            defaults.set(newValue.width, forKey: "panelWidth")
+            defaults.set(newValue.height, forKey: "panelHeight")
+        }
+    }
+
     static var playSound: Bool {
         get { defaults.object(forKey: "playSound") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "playSound") }

@@ -74,7 +74,7 @@ When you copy something, PasteTrove plays a short sound and the menu bar icon fl
 
 ### Layouts
 
-Pick a layout from the button in the bottom-left corner of the panel, or press ⌘L.
+Pick a layout from the button in the bottom-left corner of the panel, or press ⌘L. Drag any edge of the panel to resize it; PasteTrove remembers the size, and Grid View adds columns as the panel gets wider.
 
 | Layout | Shows |
 |---|---|
@@ -105,7 +105,7 @@ PasteTrove recognizes **code** (terminal commands, source code, JSON, SQL), **Ma
 | ⇧⏎ | Paste as plain text |
 | ⌘⏎ | Copy and close, do not paste |
 | ⌘C | Copy and keep the panel open |
-| Hold ⌘, then 1 … 9 | Paste one of the first nine visible items. Holding ⌘ shows the numbers. |
+| Hold ⌘, then 1 … 9 or 0 | Paste one of the first ten visible items (0 is the tenth). Holding ⌘ shows glowing numbers on them. |
 | Space, ⌘Y | Preview |
 | ⇥ / ⇧⇥ | Next / previous filter |
 | ⌘P | Pin or unpin. Pinned items stay at the top and are never removed. |
@@ -133,7 +133,7 @@ The gear menu has About, Settings, Pause Recording, Check for Updates, Clear His
 
 ### Open from other tools
 
-`pastetrove://open` opens the panel, for Shortcuts, Raycast or scripts. Add `?layout=plain`, `rich` or `grid` to pick a layout.
+`pastetrove://open` opens the panel, for Shortcuts, Raycast or scripts. Add `?layout=plain`, `rich` or `grid` to pick a layout. `pastetrove://settings` and `pastetrove://about` open those windows.
 
 ## Privacy
 

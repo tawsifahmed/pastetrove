@@ -31,8 +31,6 @@ enum Layout: String, CaseIterable {
         }
     }
 
-    var columns: Int { self == .grid ? 2 : 1 }
-
     var cornerRadius: CGFloat {
         switch self {
         case .plain: 6
@@ -86,6 +84,8 @@ final class Model: ObservableObject {
     @Published private(set) var opened = 0
     /// ⌘1–9 badges show only while ⌘ is held, numbered from the first visible item.
     @Published var paused = false
+    /// Grid View columns; more fit as the panel gets wider.
+    @Published var gridColumns = 2
     @Published var commandHeld = false
     @Published var firstVisible = 0
     /// The item just copied with ⌘C, highlighted for a moment.
@@ -101,9 +101,15 @@ final class Model: ObservableObject {
         shown.indices.contains(selected) ? shown[selected] : nil
     }
 
+    /// Items per row, for ↑ ↓ to move one row.
+    var columns: Int { layout == .grid ? gridColumns : 1 }
+
+    /// Keeps the same item selected when a new copy arrives while the panel is open.
     func reload() {
+        let keep = current?.id
         all = store.items()
         apply()
+        if let keep, let index = shown.firstIndex(where: { $0.id == keep }) { selected = index }
     }
 
     func reset() {
@@ -175,8 +181,6 @@ final class PanelController: NSObject, NSWindowDelegate {
         case below(NSRect), cursor, center
     }
 
-    static let width: CGFloat = 380
-
     var onPick: ((Item, PickMode) -> Void)?
     var onCopy: ((Item) -> Void)?
     var onCommand: ((PanelCommand) -> Void)?
@@ -189,19 +193,22 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     private static let digits: [Int: Int] = [
         kVK_ANSI_1: 1, kVK_ANSI_2: 2, kVK_ANSI_3: 3, kVK_ANSI_4: 4, kVK_ANSI_5: 5,
-        kVK_ANSI_6: 6, kVK_ANSI_7: 7, kVK_ANSI_8: 8, kVK_ANSI_9: 9,
+        kVK_ANSI_6: 6, kVK_ANSI_7: 7, kVK_ANSI_8: 8, kVK_ANSI_9: 9, kVK_ANSI_0: 10,
     ]
 
     init(model: Model) {
         self.model = model
         panel = FloatingPanel(
-            contentRect: NSRect(x: 0, y: 0, width: Self.width, height: 600),
-            styleMask: [.borderless, .nonactivatingPanel],
+            contentRect: NSRect(origin: .zero, size: Settings.panelSize),
+            styleMask: [.borderless, .nonactivatingPanel, .resizable],
             backing: .buffered,
             defer: false
         )
         preview = PreviewController(model: model)
         super.init()
+        // Drag any edge to resize; the size is remembered.
+        panel.minSize = NSSize(width: 340, height: 420)
+        panel.maxSize = NSSize(width: 980, height: 2400)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -239,17 +246,20 @@ final class PanelController: NSObject, NSWindowDelegate {
             point = NSEvent.mouseLocation
         }
         guard let screen = (NSScreen.screens.first { $0.frame.contains(point) } ?? NSScreen.main)?.visibleFrame else { return }
-        let height = min(760, screen.height - 40)
-        var frame = NSRect(x: 0, y: 0, width: Self.width, height: height)
+        let saved = Settings.panelSize
+        let width = min(saved.width, screen.width - 12)
+        let height = min(saved.height, screen.height - 40)
+        var frame = NSRect(x: 0, y: 0, width: width, height: height)
         switch anchor {
         case let .below(rect):
-            frame.origin = NSPoint(x: rect.midX - Self.width / 2, y: rect.minY - 6 - height)
+            frame.origin = NSPoint(x: rect.midX - width / 2, y: rect.minY - 6 - height)
         case .cursor:
             frame.origin = NSPoint(x: point.x - 24, y: point.y - height + 12)
         case .center:
-            frame.origin = NSPoint(x: screen.midX - Self.width / 2, y: screen.midY - height / 2)
+            frame.origin = NSPoint(x: screen.midX - width / 2, y: screen.midY - height / 2)
         }
         panel.setFrame(Self.clamp(frame, to: screen), display: true)
+        updateColumns()
         panel.makeKeyAndOrderFront(nil)
         model.commandHeld = NSEvent.modifierFlags.contains(.command)
         if keyMonitor == nil {
@@ -275,6 +285,20 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         hide()
+    }
+
+    func windowDidResize(_ notification: Notification) {
+        updateColumns()
+    }
+
+    func windowDidEndLiveResize(_ notification: Notification) {
+        Settings.panelSize = panel.frame.size
+    }
+
+    /// Grid cards stay at least 170 points wide; a wider panel gets more columns.
+    private func updateColumns() {
+        let columns = max(2, Int((panel.frame.width - 24 + 10) / (170 + 10)))
+        if model.gridColumns != columns { model.gridColumns = columns }
     }
 
     private func pick(_ item: Item, _ mode: PickMode) {
@@ -306,6 +330,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     private func handle(_ event: NSEvent) -> Bool {
+        // While an input method composes text in the search field, ⏎, arrows and esc belong to it.
+        if (panel.firstResponder as? NSTextView)?.hasMarkedText() == true { return false }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let command = flags.contains(.command)
         let shift = flags.contains(.shift)
@@ -318,10 +344,10 @@ final class PanelController: NSObject, NSWindowDelegate {
             if model.query.isEmpty { hide() } else { model.query = "" }
             return true
         case kVK_DownArrow:
-            model.move(command ? Int(Int32.max) : model.layout.columns)
+            model.move(command ? Int(Int32.max) : model.columns)
             return true
         case kVK_UpArrow:
-            model.move(command ? -Int(Int32.max) : -model.layout.columns)
+            model.move(command ? -Int(Int32.max) : -model.columns)
             return true
         case kVK_LeftArrow where grid:
             model.move(-1)
@@ -352,7 +378,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
 
         if flags.contains(.control), key == kVK_ANSI_N || key == kVK_ANSI_P {
-            model.move(key == kVK_ANSI_N ? model.layout.columns : -model.layout.columns)
+            model.move(key == kVK_ANSI_N ? model.columns : -model.columns)
             return true
         }
         guard command else { return false }
@@ -379,7 +405,9 @@ final class PanelController: NSObject, NSWindowDelegate {
             model.select(item)
             copy(item)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                self?.pick(item, shift ? .plain : .paste)
+                // Skip if the panel closed meanwhile (you switched apps), so the paste never lands elsewhere.
+                guard let self, panel.isVisible else { return }
+                pick(item, shift ? .plain : .paste)
             }
         }
         return true
@@ -434,7 +462,7 @@ struct PreviewWindow: View {
     var body: some View {
         PreviewPane(item: model.current, store: model.store)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(VisualEffect())
+            .background(PanelBackground())
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
     }
@@ -457,7 +485,7 @@ struct PanelView: View {
             footer
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(VisualEffect())
+        .background(PanelBackground())
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
         .onAppear { searchFocused = true }
@@ -539,7 +567,7 @@ struct PanelView: View {
                 ScrollView {
                     Group {
                         if model.layout == .grid {
-                            LazyVGrid(columns: Array(repeating: GridItem(.fixed(Card.width), spacing: 10), count: 2), spacing: 10) {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: model.gridColumns), spacing: 10) {
                                 cells
                             }
                         } else {
@@ -552,6 +580,9 @@ struct PanelView: View {
                 .onPreferenceChange(FirstVisibleKey.self) { index in
                     let first = index == Int.max ? 0 : index
                     if model.firstVisible != first { model.firstVisible = first }
+                }
+                .onChange(of: model.opened) {
+                    if let id = model.shown.first?.id { proxy.scrollTo(id, anchor: .top) }
                 }
                 .onChange(of: model.current?.id) {
                     if let id = model.current?.id { proxy.scrollTo(id) }
@@ -607,7 +638,8 @@ struct PanelView: View {
     @ViewBuilder private func cell(_ item: Item, _ index: Int) -> some View {
         let selected = index == model.selected
         let offset = index - model.firstVisible
-        let shortcut = model.commandHeld && (0..<9).contains(offset) ? offset + 1 : nil
+        // ⌘1…⌘9 and ⌘0: the first ten visible items.
+        let shortcut = model.commandHeld && (0..<10).contains(offset) ? offset + 1 : nil
         let flashing = model.flashID == item.id
         Group {
             switch model.layout {
@@ -620,7 +652,10 @@ struct PanelView: View {
             if flashing { CopiedFlash(cornerRadius: model.layout.cornerRadius) }
         }
         .scaleEffect(flashing ? 0.97 : 1)
+        // While ⌘ is held, items without a number fade back so 1–9 stand out.
+        .opacity(model.commandHeld && shortcut == nil ? 0.4 : 1)
         .animation(.spring(response: 0.28, dampingFraction: 0.6), value: flashing)
+        .animation(.spring(response: 0.25, dampingFraction: 0.8), value: model.commandHeld)
     }
 
     private var footer: some View {
@@ -651,6 +686,23 @@ struct PanelView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+}
+
+/// An image that fills whatever box it is given and is cropped to it, like CSS `object-fit: cover`,
+/// so tall and wide images line up at the same size.
+struct CoverImage: View {
+    let image: NSImage
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        Color.clear
+            .overlay(Image(nsImage: image).resizable().scaledToFill())
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+            )
     }
 }
 
@@ -706,7 +758,7 @@ struct FirstVisibleKey: PreferenceKey {
     }
 }
 
-/// The item's age, or its ⌘ shortcut while ⌘ is held, plus the pin mark.
+/// The item's age, or a glowing ⌘ shortcut pill while ⌘ is held, plus the pin mark.
 struct Badge: View {
     let item: Item
     let shortcut: Int?
@@ -715,7 +767,14 @@ struct Badge: View {
         HStack(spacing: 4) {
             if item.pinned { Image(systemName: "pin.fill").foregroundStyle(.orange) }
             if let shortcut {
-                Text("⌘\(shortcut)").fontWeight(.bold).foregroundStyle(Color.primary)
+                Text("⌘\(shortcut % 10)")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.accentColor))
+                    .shadow(color: Color.accentColor.opacity(0.85), radius: 6)
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
             } else {
                 Text(item.age)
             }
@@ -726,6 +785,13 @@ struct Badge: View {
     }
 }
 
+extension View {
+    /// Soft accent glow around the selected item.
+    func selectionGlow(_ selected: Bool, radius: CGFloat = 8) -> some View {
+        shadow(color: selected ? Color.accentColor.opacity(0.45) : .clear, radius: radius)
+    }
+}
+
 struct PlainRow: View {
     let item: Item
     let shortcut: Int?
@@ -733,19 +799,20 @@ struct PlainRow: View {
     let store: Store
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(nsImage: Cache.appIcon(item.app)).resizable().frame(width: 16, height: 16)
+        HStack(spacing: 10) {
+            Image(nsImage: Cache.appIcon(item.app)).resizable().frame(width: 26, height: 26)
             content
             Spacer(minLength: 4)
             Badge(item: item, shortcut: shortcut)
         }
-        .font(.system(size: 13))
-        .padding(.horizontal, 8)
-        .frame(height: 28)
+        .font(.system(size: 15.5))
+        .padding(.horizontal, 12)
+        .frame(height: 52)
         .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(selected ? Color.accentColor.opacity(0.3) : Color.clear)
         )
+        .selectionGlow(selected, radius: 6)
         .contentShape(Rectangle())
     }
 
@@ -753,18 +820,19 @@ struct PlainRow: View {
         switch item.kind {
         case .text:
             StyleMark(item: item)
-            Text(item.preview).lineLimit(1).font(item.style == .code ? .system(size: 12, design: .monospaced) : nil)
+            Text(item.preview).lineLimit(1).font(item.style == .code ? .system(size: 14, design: .monospaced) : nil)
         case .link:
-            Image(systemName: "link").font(.system(size: 11)).foregroundStyle(.blue)
+            Image(systemName: "link").font(.system(size: 13)).foregroundStyle(.blue)
             Text(item.preview).lineLimit(1).truncationMode(.middle)
         case .image:
-            if let thumb = Cache.thumbnail(item, store: store, size: 80) {
-                Image(nsImage: thumb).resizable().scaledToFit().frame(height: 20)
+            if let thumb = Cache.thumbnail(item, store: store, size: 240) {
+                CoverImage(image: thumb, cornerRadius: 8)
+                    .frame(width: 60, height: 40)
             }
             Text(item.text).foregroundStyle(.secondary)
         case .file:
             let paths = item.paths
-            Image(nsImage: NSWorkspace.shared.icon(forFile: paths.first ?? "")).resizable().frame(width: 16, height: 16)
+            Image(nsImage: Cache.fileIcon(paths.first ?? "")).resizable().frame(width: 26, height: 26)
             Text(paths.map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -779,30 +847,29 @@ struct RichRow: View {
     let store: Store
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 5) {
-                Image(nsImage: Cache.appIcon(item.app)).resizable().frame(width: 14, height: 14)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(nsImage: Cache.appIcon(item.app)).resizable().frame(width: 18, height: 18)
                 Text(Cache.appName(item.app)).lineLimit(1)
                 Spacer(minLength: 4)
                 Badge(item: item, shortcut: shortcut)
             }
-            .font(.system(size: 10))
+            .font(.system(size: 12))
             .foregroundStyle(.secondary)
-            ClipContent(item: item, store: store, lines: 5, imageHeight: 120)
+            ClipContent(item: item, store: store, lines: 5, imageHeight: 170, large: true)
         }
-        .padding(10)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(selected ? Color.accentColor.opacity(0.28) : Color.primary.opacity(0.05))
         )
+        .selectionGlow(selected)
         .contentShape(Rectangle())
     }
 }
 
 struct Card: View {
-    static let width: CGFloat = 173
-
     let item: Item
     let shortcut: Int?
     let selected: Bool
@@ -822,21 +889,23 @@ struct Card: View {
             .padding(.vertical, 5)
             .background(Color.primary.opacity(0.05))
             Group {
-                if item.kind == .image, let thumb = Cache.thumbnail(item, store: store, size: 500) {
-                    Image(nsImage: thumb).resizable().scaledToFill().frame(width: Self.width, height: 118).clipped()
+                if item.kind == .image, let thumb = Cache.thumbnail(item, store: store, size: 600) {
+                    // The clear frame sets the size; the image fills it whatever the column width is.
+                    Color.clear.overlay(Image(nsImage: thumb).resizable().scaledToFill()).clipped()
                 } else {
                     ClipContent(item: item, store: store, lines: 7, imageHeight: 100).padding(8)
                 }
             }
-            .frame(width: Self.width, height: 118, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 124, maxHeight: 124, alignment: .topLeading)
         }
-        .frame(width: Self.width)
+        .frame(maxWidth: .infinity)
         .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.05)))
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.08), lineWidth: selected ? 2.5 : 1)
         )
+        .selectionGlow(selected, radius: 10)
         .contentShape(Rectangle())
     }
 }
@@ -847,47 +916,51 @@ struct ClipContent: View {
     let store: Store
     let lines: Int
     let imageHeight: CGFloat
+    /// Rich List uses larger type than the compact grid cards.
+    var large = false
+
+    private var body12: CGFloat { large ? 14 : 12 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: large ? 6 : 4) {
             switch item.kind {
             case .text where item.style == .color:
                 HStack(spacing: 8) {
                     StyleMark(item: item).scaleEffect(2.2).frame(width: 28, height: 28)
                     Text(item.text.trimmingCharacters(in: .whitespacesAndNewlines))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(.system(size: body12, design: .monospaced))
                 }
             case .text:
                 if item.style != .plain {
                     Label(item.style == .code ? "Code" : "Markdown", systemImage: item.style.symbol)
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: large ? 11.5 : 10, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
                 Text(String(item.text.prefix(lines * 120)))
-                    .font(item.style == .code ? .system(size: 11.5, design: .monospaced) : .system(size: 12))
+                    .font(item.style == .code ? .system(size: body12 - 0.5, design: .monospaced) : .system(size: body12))
                     .lineLimit(lines)
             case .link:
                 Label(item.host ?? "Link", systemImage: "link")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: body12, weight: .semibold))
                     .foregroundStyle(.blue)
                     .lineLimit(1)
                 Text(item.text.trimmingCharacters(in: .whitespacesAndNewlines))
-                    .font(.system(size: 11))
+                    .font(.system(size: body12 - 1))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .truncationMode(.middle)
             case .image:
                 if let thumb = Cache.thumbnail(item, store: store, size: 600) {
-                    Image(nsImage: thumb).resizable().scaledToFit()
-                        .frame(maxHeight: imageHeight)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    CoverImage(image: thumb, cornerRadius: 10)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: imageHeight)
                 }
                 Text(item.text).font(.system(size: 10)).foregroundStyle(.secondary)
             case .file:
                 let paths = item.paths
                 HStack(spacing: 8) {
                     let image = paths.count == 1 ? Cache.fileThumbnail(URL(fileURLWithPath: paths[0]), size: 200) : nil
-                    Image(nsImage: image ?? NSWorkspace.shared.icon(forFile: paths.first ?? ""))
+                    Image(nsImage: image ?? Cache.fileIcon(paths.first ?? ""))
                         .resizable().scaledToFit().frame(width: 36, height: 36)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(paths.map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))
@@ -976,7 +1049,7 @@ struct PreviewPane: View {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(urls, id: \.self) { url in
                             HStack(spacing: 10) {
-                                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 32, height: 32)
+                                Image(nsImage: Cache.fileIcon(url.path)).resizable().frame(width: 32, height: 32)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(url.lastPathComponent).font(.system(size: 13))
                                     Text(url.deletingLastPathComponent().path).font(.caption).foregroundStyle(.secondary)
@@ -1031,6 +1104,16 @@ struct TextPreview: NSViewRepresentable {
     }
 }
 
+/// Near-black glass: the blur stays, but a dark layer keeps colorful windows behind from tinting the panel.
+struct PanelBackground: View {
+    var body: some View {
+        ZStack {
+            VisualEffect()
+            Color.black.opacity(0.62)
+        }
+    }
+}
+
 struct VisualEffect: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
@@ -1048,8 +1131,33 @@ struct VisualEffect: NSViewRepresentable {
 enum Cache {
     private static var icons: [String: NSImage] = [:]
     private static var names: [String: String] = [:]
-    private static let images = NSCache<NSString, NSImage>()
-    private static let texts = NSCache<NSNumber, NSString>()
+    /// Decoded thumbnails, bounded by memory; the cost of each is its pixel size.
+    private static let images: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.totalCostLimit = 150 * 1024 * 1024
+        return cache
+    }()
+    private static let texts: NSCache<NSNumber, NSString> = {
+        let cache = NSCache<NSNumber, NSString>()
+        cache.countLimit = 30
+        return cache
+    }()
+    private static let fileIcons: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 300
+        return cache
+    }()
+
+    static func fileIcon(_ path: String) -> NSImage {
+        if let hit = fileIcons.object(forKey: path as NSString) { return hit }
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        fileIcons.setObject(icon, forKey: path as NSString)
+        return icon
+    }
+
+    private static func cost(_ image: NSImage) -> Int {
+        image.representations.first.map { $0.pixelsWide * $0.pixelsHigh * 4 } ?? 0
+    }
 
     static func appIcon(_ bundleID: String?) -> NSImage {
         let key = bundleID ?? ""
@@ -1078,16 +1186,19 @@ enum Cache {
         guard let data = small ?? store.data(item.id, type: NSPasteboard.PasteboardType.png.rawValue),
               let image = scaled(CGImageSourceCreateWithData(data as CFData, nil), size)
         else { return nil }
-        images.setObject(image, forKey: key)
+        images.setObject(image, forKey: key, cost: cost(image))
         return image
     }
 
     static func fileThumbnail(_ url: URL, size: Int) -> NSImage? {
         guard UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true else { return nil }
+        // Skip huge files: decoding them would stall the list.
+        let bytes = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? .max
+        guard bytes < 25_000_000 else { return nil }
         let key = "file-\(url.path)-\(size)" as NSString
         if let hit = images.object(forKey: key) { return hit }
         guard let image = scaled(CGImageSourceCreateWithURL(url as CFURL, nil), size) else { return nil }
-        images.setObject(image, forKey: key)
+        images.setObject(image, forKey: key, cost: cost(image))
         return image
     }
 
