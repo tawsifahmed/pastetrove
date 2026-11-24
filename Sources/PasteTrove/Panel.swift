@@ -7,6 +7,11 @@ enum PickMode {
     case paste, plain, copy
 }
 
+/// Actions from the panel's gear menu (and ⌘,), carried out by the app.
+enum PanelCommand {
+    case about, settings, togglePause, updates, clearHistory, quit
+}
+
 enum Layout: String, CaseIterable {
     case plain, rich, grid
 
@@ -27,15 +32,24 @@ enum Layout: String, CaseIterable {
     }
 
     var columns: Int { self == .grid ? 2 : 1 }
+
+    var cornerRadius: CGFloat {
+        switch self {
+        case .plain: 6
+        case .rich: 9
+        case .grid: 10
+        }
+    }
 }
 
 enum Filter: CaseIterable {
-    case all, text, links, images, files, pinned
+    case all, text, code, links, images, files, pinned
 
     var title: String {
         switch self {
         case .all: "All"
         case .text: "Text"
+        case .code: "Code"
         case .links: "Links"
         case .images: "Images"
         case .files: "Files"
@@ -46,7 +60,8 @@ enum Filter: CaseIterable {
     func matches(_ item: Item) -> Bool {
         switch self {
         case .all: true
-        case .text: item.kind == .text
+        case .text: item.kind == .text && item.style != .code
+        case .code: item.kind == .text && item.style == .code
         case .links: item.kind == .link
         case .images: item.kind == .image
         case .files: item.kind == .file
@@ -69,6 +84,12 @@ final class Model: ObservableObject {
         didSet { Settings.layout = layout }
     }
     @Published private(set) var opened = 0
+    /// ⌘1–9 badges show only while ⌘ is held, numbered from the first visible item.
+    @Published var paused = false
+    @Published var commandHeld = false
+    @Published var firstVisible = 0
+    /// The item just copied with ⌘C, highlighted for a moment.
+    @Published private(set) var flashID: Int64?
     private var all: [Item] = []
 
     init(store: Store) {
@@ -107,17 +128,28 @@ final class Model: ObservableObject {
         layout = cases[((cases.firstIndex(of: layout) ?? 0) + 1) % cases.count]
     }
 
-    func deleteCurrent() {
-        guard let item = current else { return }
+    func flash(_ item: Item) {
+        flashID = item.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
+            if self?.flashID == item.id { self?.flashID = nil }
+        }
+    }
+
+    func select(_ item: Item) {
+        selected = shown.firstIndex { $0.id == item.id } ?? selected
+    }
+
+    func delete(_ item: Item? = nil) {
+        guard let item = item ?? current else { return }
         store.delete(item.id)
         reload()
     }
 
-    func togglePin() {
-        guard let item = current else { return }
+    func togglePin(_ item: Item? = nil) {
+        guard let item = item ?? current else { return }
         store.setPinned(item.id, !item.pinned)
         reload()
-        selected = shown.firstIndex { $0.id == item.id } ?? 0
+        select(item)
     }
 
     /// In-memory search: every word must appear, case and accents ignored.
@@ -146,7 +178,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     static let width: CGFloat = 380
 
     var onPick: ((Item, PickMode) -> Void)?
-    var onSettings: (() -> Void)?
+    var onCopy: ((Item) -> Void)?
+    var onCommand: ((PanelCommand) -> Void)?
 
     private let model: Model
     private let panel: FloatingPanel
@@ -180,7 +213,8 @@ final class PanelController: NSObject, NSWindowDelegate {
         let host = NSHostingView(rootView: PanelView(
             model: model,
             pick: { [weak self] item, mode in self?.pick(item, mode) },
-            settings: { [weak self] in self?.openSettings() },
+            copy: { [weak self] item in self?.copy(item) },
+            command: { [weak self] in self?.run($0) },
             togglePreview: { [weak self] in self?.togglePreview() }
         ))
         host.sizingOptions = []
@@ -217,9 +251,15 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
         panel.setFrame(Self.clamp(frame, to: screen), display: true)
         panel.makeKeyAndOrderFront(nil)
+        model.commandHeld = NSEvent.modifierFlags.contains(.command)
         if keyMonitor == nil {
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                self?.handle(event) == true ? nil : event
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+                guard let self else { return event }
+                if event.type == .flagsChanged {
+                    model.commandHeld = event.modifierFlags.contains(.command)
+                    return event
+                }
+                return handle(event) ? nil : event
             }
         }
     }
@@ -229,6 +269,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         keyMonitor = nil
         preview.hide()
         panel.orderOut(nil)
+        model.commandHeld = false
         hiddenAt = Date()
     }
 
@@ -241,12 +282,19 @@ final class PanelController: NSObject, NSWindowDelegate {
         onPick?(item, mode)
     }
 
-    private func openSettings() {
-        hide()
-        onSettings?()
+    /// Copies without closing the panel, like ⌘C in a list.
+    private func copy(_ item: Item) {
+        onCopy?(item)
+        model.flash(item)
     }
 
-    private func togglePreview() {
+    /// Pausing keeps the panel open; every other command opens a window or quits.
+    private func run(_ command: PanelCommand) {
+        if command != .togglePause { hide() }
+        onCommand?(command)
+    }
+
+    func togglePreview() {
         preview.toggle(beside: panel.frame)
     }
 
@@ -297,7 +345,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             if let item = model.current { pick(item, command ? .copy : shift ? .plain : .paste) }
             return true
         case kVK_Delete where command:
-            model.deleteCurrent()
+            model.delete()
             return true
         default:
             break
@@ -309,6 +357,11 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
         guard command else { return false }
         switch key {
+        case kVK_ANSI_C:
+            // Text selected in the search field copies as usual; otherwise ⌘C copies the selected item.
+            if let editor = panel.firstResponder as? NSTextView, editor.selectedRange().length > 0 { return false }
+            guard let item = model.current else { return false }
+            copy(item)
         case kVK_ANSI_P:
             model.togglePin()
         case kVK_ANSI_L:
@@ -316,10 +369,18 @@ final class PanelController: NSObject, NSWindowDelegate {
         case kVK_ANSI_Y:
             togglePreview()
         case kVK_ANSI_Comma:
-            openSettings()
+            run(.settings)
         default:
-            guard let number = Self.digits[key], number <= model.shown.count else { return false }
-            pick(model.shown[number - 1], shift ? .plain : .paste)
+            guard let number = Self.digits[key] else { return false }
+            let index = model.firstVisible + number - 1
+            guard model.shown.indices.contains(index) else { return true }
+            // Copy and flash first, so you see which item it was, then close and paste.
+            let item = model.shown[index]
+            model.select(item)
+            copy(item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.pick(item, shift ? .plain : .paste)
+            }
         }
         return true
     }
@@ -382,7 +443,8 @@ struct PreviewWindow: View {
 struct PanelView: View {
     @ObservedObject var model: Model
     let pick: (Item, PickMode) -> Void
-    let settings: () -> Void
+    let copy: (Item) -> Void
+    let command: (PanelCommand) -> Void
     let togglePreview: () -> Void
     @FocusState private var searchFocused: Bool
 
@@ -415,10 +477,13 @@ struct PanelView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 7)
                 .background(Capsule().fill(Color.primary.opacity(0.08)))
-                Button(action: settings) { Image(systemName: "gearshape").font(.system(size: 15)) }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Settings (⌘,)")
+                if model.paused {
+                    Text("Paused")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .help("Recording is paused. Resume it from the gear menu.")
+                }
+                gearMenu
             }
             HStack(spacing: 4) {
                 ForEach(Filter.allCases, id: \.self) { filter in
@@ -436,6 +501,28 @@ struct PanelView: View {
             }
         }
         .padding(12)
+    }
+
+    private var gearMenu: some View {
+        Menu {
+            Button("About PasteTrove") { command(.about) }
+            Button("Settings…") { command(.settings) }
+                .keyboardShortcut(",", modifiers: .command)
+            Divider()
+            Button(model.paused ? "Resume Recording" : "Pause Recording") { command(.togglePause) }
+            Button("Check for Updates…") { command(.updates) }
+            Divider()
+            Button("Clear History…") { command(.clearHistory) }
+            Button("Quit PasteTrove") { command(.quit) }
+                .keyboardShortcut("q", modifiers: .command)
+        } label: {
+            Image(systemName: "gearshape").font(.system(size: 15))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(.secondary)
+        .help("Settings and more")
     }
 
     @ViewBuilder private var content: some View {
@@ -461,6 +548,11 @@ struct PanelView: View {
                     }
                     .padding(model.layout == .grid ? 12 : 8)
                 }
+                .coordinateSpace(name: "list")
+                .onPreferenceChange(FirstVisibleKey.self) { index in
+                    let first = index == Int.max ? 0 : index
+                    if model.firstVisible != first { model.firstVisible = first }
+                }
                 .onChange(of: model.current?.id) {
                     if let id = model.current?.id { proxy.scrollTo(id) }
                 }
@@ -472,18 +564,63 @@ struct PanelView: View {
         ForEach(Array(model.shown.enumerated()), id: \.element.id) { index, item in
             cell(item, index)
                 .id(item.id)
-                .onTapGesture(count: 2) { pick(item, .paste) }
-                .onTapGesture { model.selected = index }
+                // One gesture, so a single click selects at once instead of waiting out the double-click delay.
+                .onTapGesture {
+                    if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { pick(item, .paste) } else { model.selected = index }
+                }
+                .contextMenu { menu(for: item) }
+                .onHover { inside in (inside ? NSCursor.pointingHand : NSCursor.arrow).set() }
+                .background(GeometryReader { geometry in
+                    // Only rendered cells report; the smallest index whose top is in view wins.
+                    Color.clear.preference(
+                        key: FirstVisibleKey.self,
+                        value: geometry.frame(in: .named("list")).minY >= -4 ? index : Int.max
+                    )
+                })
         }
+    }
+
+    @ViewBuilder private func menu(for item: Item) -> some View {
+        Button("Paste") { pick(item, .paste) }
+        if item.kind == .text || item.kind == .link {
+            Button("Paste as Plain Text") { pick(item, .plain) }
+        }
+        Button("Copy") { copy(item) }
+        Divider()
+        Button("Preview") {
+            model.select(item)
+            togglePreview()
+        }
+        Button(item.pinned ? "Unpin" : "Pin") { model.togglePin(item) }
+        if item.kind == .link, let url = URL(string: item.text.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            Button("Open Link") { NSWorkspace.shared.open(url) }
+        }
+        if item.kind == .file {
+            Button("Show in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting(item.paths.map { URL(fileURLWithPath: $0) })
+            }
+        }
+        Divider()
+        Button("Delete", role: .destructive) { model.delete(item) }
     }
 
     @ViewBuilder private func cell(_ item: Item, _ index: Int) -> some View {
         let selected = index == model.selected
-        switch model.layout {
-        case .plain: PlainRow(item: item, index: index, selected: selected, store: model.store)
-        case .rich: RichRow(item: item, index: index, selected: selected, store: model.store)
-        case .grid: Card(item: item, index: index, selected: selected, store: model.store)
+        let offset = index - model.firstVisible
+        let shortcut = model.commandHeld && (0..<9).contains(offset) ? offset + 1 : nil
+        let flashing = model.flashID == item.id
+        Group {
+            switch model.layout {
+            case .plain: PlainRow(item: item, shortcut: shortcut, selected: selected, store: model.store)
+            case .rich: RichRow(item: item, shortcut: shortcut, selected: selected, store: model.store)
+            case .grid: Card(item: item, shortcut: shortcut, selected: selected, store: model.store)
+            }
         }
+        .overlay {
+            if flashing { CopiedFlash(cornerRadius: model.layout.cornerRadius) }
+        }
+        .scaleEffect(flashing ? 0.97 : 1)
+        .animation(.spring(response: 0.28, dampingFraction: 0.6), value: flashing)
     }
 
     private var footer: some View {
@@ -517,24 +654,81 @@ struct PanelView: View {
     }
 }
 
-/// ⌘1–9 for the first nine items, age for the rest, plus the pin mark.
+/// Small leading mark for code, Markdown and color items.
+struct StyleMark: View {
+    let item: Item
+
+    var body: some View {
+        switch item.style {
+        case .plain:
+            EmptyView()
+        case .color:
+            Circle()
+                .fill(Color(nsColor: TextStyle.color(from: item.text) ?? .gray))
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.2)))
+                .frame(width: 12, height: 12)
+        case .code, .markdown:
+            Image(systemName: item.style.symbol)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+extension TextStyle {
+    var symbol: String { self == .code ? "chevron.left.forwardslash.chevron.right" : "number" }
+}
+
+/// Green outline with a "Copied" label, shown briefly after ⌘C.
+struct CopiedFlash: View {
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .strokeBorder(Color.green, lineWidth: 2.5)
+            .overlay {
+                Label("Copied", systemImage: "checkmark.circle.fill")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.regularMaterial, in: Capsule())
+            }
+            .transition(.opacity)
+    }
+}
+
+struct FirstVisibleKey: PreferenceKey {
+    static var defaultValue = Int.max
+
+    static func reduce(value: inout Int, nextValue: () -> Int) {
+        value = min(value, nextValue())
+    }
+}
+
+/// The item's age, or its ⌘ shortcut while ⌘ is held, plus the pin mark.
 struct Badge: View {
     let item: Item
-    let index: Int
+    let shortcut: Int?
 
     var body: some View {
         HStack(spacing: 4) {
             if item.pinned { Image(systemName: "pin.fill").foregroundStyle(.orange) }
-            Text(index < 9 ? "⌘\(index + 1)" : item.age).monospacedDigit()
+            if let shortcut {
+                Text("⌘\(shortcut)").fontWeight(.bold).foregroundStyle(Color.primary)
+            } else {
+                Text(item.age)
+            }
         }
         .font(.system(size: 10))
+        .monospacedDigit()
         .foregroundStyle(.secondary)
     }
 }
 
 struct PlainRow: View {
     let item: Item
-    let index: Int
+    let shortcut: Int?
     let selected: Bool
     let store: Store
 
@@ -543,7 +737,7 @@ struct PlainRow: View {
             Image(nsImage: Cache.appIcon(item.app)).resizable().frame(width: 16, height: 16)
             content
             Spacer(minLength: 4)
-            Badge(item: item, index: index)
+            Badge(item: item, shortcut: shortcut)
         }
         .font(.system(size: 13))
         .padding(.horizontal, 8)
@@ -558,7 +752,8 @@ struct PlainRow: View {
     @ViewBuilder private var content: some View {
         switch item.kind {
         case .text:
-            Text(item.preview).lineLimit(1)
+            StyleMark(item: item)
+            Text(item.preview).lineLimit(1).font(item.style == .code ? .system(size: 12, design: .monospaced) : nil)
         case .link:
             Image(systemName: "link").font(.system(size: 11)).foregroundStyle(.blue)
             Text(item.preview).lineLimit(1).truncationMode(.middle)
@@ -579,7 +774,7 @@ struct PlainRow: View {
 
 struct RichRow: View {
     let item: Item
-    let index: Int
+    let shortcut: Int?
     let selected: Bool
     let store: Store
 
@@ -588,10 +783,8 @@ struct RichRow: View {
             HStack(spacing: 5) {
                 Image(nsImage: Cache.appIcon(item.app)).resizable().frame(width: 14, height: 14)
                 Text(Cache.appName(item.app)).lineLimit(1)
-                Text("· \(item.age)")
                 Spacer(minLength: 4)
-                if item.pinned { Image(systemName: "pin.fill").foregroundStyle(.orange) }
-                if index < 9 { Text("⌘\(index + 1)") }
+                Badge(item: item, shortcut: shortcut)
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
@@ -611,7 +804,7 @@ struct Card: View {
     static let width: CGFloat = 173
 
     let item: Item
-    let index: Int
+    let shortcut: Int?
     let selected: Bool
     let store: Store
 
@@ -621,7 +814,7 @@ struct Card: View {
                 Image(nsImage: Cache.appIcon(item.app)).resizable().frame(width: 12, height: 12)
                 Text(Cache.appName(item.app)).lineLimit(1)
                 Spacer(minLength: 2)
-                Badge(item: item, index: index)
+                Badge(item: item, shortcut: shortcut)
             }
             .font(.system(size: 10))
             .foregroundStyle(.secondary)
@@ -658,9 +851,20 @@ struct ClipContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             switch item.kind {
+            case .text where item.style == .color:
+                HStack(spacing: 8) {
+                    StyleMark(item: item).scaleEffect(2.2).frame(width: 28, height: 28)
+                    Text(item.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                        .font(.system(size: 12, design: .monospaced))
+                }
             case .text:
+                if item.style != .plain {
+                    Label(item.style == .code ? "Code" : "Markdown", systemImage: item.style.symbol)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
                 Text(String(item.text.prefix(lines * 120)))
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(item.style == .code ? .system(size: 11.5, design: .monospaced) : .system(size: 12))
                     .lineLimit(lines)
             case .link:
                 Label(item.host ?? "Link", systemImage: "link")
@@ -733,6 +937,17 @@ struct PreviewPane: View {
 
     @ViewBuilder private func content(_ item: Item) -> some View {
         switch item.kind {
+        case .text where item.style == .color:
+            VStack(spacing: 14) {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(nsColor: TextStyle.color(from: item.text) ?? .gray))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.15)))
+                    .frame(width: 180, height: 180)
+                Text(item.text.trimmingCharacters(in: .whitespacesAndNewlines))
+                    .font(.system(size: 15, design: .monospaced))
+                    .textSelection(.enabled)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .text:
             TextPreview(text: Cache.fullText(item, store: store))
         case .link:
@@ -780,7 +995,8 @@ struct PreviewPane: View {
         switch item.kind {
         case .text:
             let text = Cache.fullText(item, store: store)
-            return "\(text.count) chars · \(text.split(whereSeparator: \.isNewline).count) lines ·"
+            let label = ["Text", "Code", "Markdown", "Color"][item.style.rawValue]
+            return "\(label) · \(text.count) chars · \(text.split(whereSeparator: \.isNewline).count) lines ·"
         case .link: return "Link ·"
         case .image: return "\(item.text) ·"
         case .file:
@@ -857,8 +1073,10 @@ enum Cache {
     static func thumbnail(_ item: Item, store: Store, size: Int) -> NSImage? {
         let key = "item-\(item.id)-\(size)" as NSString
         if let hit = images.object(forKey: key) { return hit }
-        guard let png = store.data(item.id, type: NSPasteboard.PasteboardType.png.rawValue),
-              let image = scaled(CGImageSourceCreateWithData(png as CFData, nil), size)
+        // Lists read the small thumbnail saved at capture; only the large preview decodes the full image.
+        let small = size <= Store.thumbnailSize ? store.data(item.id, type: Store.thumbnailType) : nil
+        guard let data = small ?? store.data(item.id, type: NSPasteboard.PasteboardType.png.rawValue),
+              let image = scaled(CGImageSourceCreateWithData(data as CFData, nil), size)
         else { return nil }
         images.setObject(image, forKey: key)
         return image
@@ -887,7 +1105,7 @@ enum Cache {
         bundleID.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
     }
 
-    private static func scaled(_ source: CGImageSource?, _ size: Int) -> NSImage? {
+    static func scaled(_ source: CGImageSource?, _ size: Int) -> NSImage? {
         let options = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,

@@ -38,6 +38,19 @@ enum Settings {
         set { defaults.set(newValue.rawValue, forKey: "placement") }
     }
 
+    /// macOS 15.4+ asks before every programmatic clipboard read unless the user picks "Always Allow".
+    static var clipboardAllowed: Bool {
+        if #available(macOS 15.4, *) {
+            return NSPasteboard.general.accessBehavior == .alwaysAllow
+        }
+        return true
+    }
+
+    static func openClipboardPrivacySettings() {
+        let url = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Pasteboard"
+        if let url = URL(string: url) { NSWorkspace.shared.open(url) }
+    }
+
     /// Turns on launch at login the first time the app runs, so history is there after a restart.
     static func firstRun() {
         guard !defaults.bool(forKey: "didFirstRun") else { return }
@@ -115,7 +128,7 @@ final class Hotkey {
     @discardableResult
     func register(_ shortcut: Shortcut) -> Bool {
         unregister()
-        let id = EventHotKeyID(signature: OSType(0x434C_4950), id: 1)
+        let id = EventHotKeyID(signature: OSType(0x5054_5256), id: 1)
         return RegisterEventHotKey(shortcut.keyCode, shortcut.modifiers, id, GetApplicationEventTarget(), 0, &ref) == noErr
     }
 
@@ -142,6 +155,7 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
     @Published var playSound = Settings.playSound {
         didSet { Settings.playSound = playSound }
     }
+    @Published var clipboardAllowed = Settings.clipboardAllowed
 
     var onClear: (() -> Void)?
     var onLimits: (() -> Void)?
@@ -158,10 +172,11 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
 
     func show() {
         launchAtLogin = SMAppService.mainApp.status == .enabled
+        clipboardAllowed = Settings.clipboardAllowed
         if window == nil {
             let view = SettingsView(model: self, panel: panelModel)
             let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-            window.title = "Clip Settings"
+            window.title = "PasteTrove Settings"
             window.styleMask = [.titled, .closable]
             window.isReleasedWhenClosed = false
             window.delegate = self
@@ -170,6 +185,21 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
         window?.center()
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// A lower limit deletes the oldest unpinned items, so it asks first. `images` picks the image limit.
+    func setLimit(_ value: Int, images: Bool) {
+        let current = images ? imageLimit : historyLimit
+        let extra = panelModel.store.unpinnedCount(kind: images ? .image : nil) - value
+        if value < current, extra > 0 {
+            let alert = NSAlert()
+            alert.messageText = "Delete \(extra) older \(images ? "images" : "items")?"
+            alert.informativeText = "PasteTrove keeps \(value) \(images ? "images" : "items") now. The oldest unpinned ones above that are deleted. Pinned items are kept. This cannot be undone."
+            alert.addButton(withTitle: "Delete")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+        }
+        if images { imageLimit = value } else { historyLimit = value }
     }
 
     func setLaunchAtLogin(_ on: Bool) {
@@ -228,7 +258,7 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
-                LabeledContent("Open Clip") {
+                LabeledContent("Open PasteTrove") {
                     Button(model.recording ? "Press new shortcut…" : model.shortcut.label) { model.startRecording() }
                         .frame(minWidth: 150)
                 }
@@ -241,21 +271,28 @@ struct SettingsView: View {
                 Picker("Layout", selection: $panel.layout) {
                     ForEach(Layout.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
+                LabeledContent("Clipboard access") {
+                    if model.clipboardAllowed {
+                        Label("Always Allow", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                    } else {
+                        Button("Set to Always Allow…") { Settings.openClipboardPrivacySettings() }
+                    }
+                }
                 Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 Toggle("Play sound when copying", isOn: $model.playSound)
             }
             Section("History") {
-                Picker("Keep items", selection: $model.historyLimit) {
+                Picker("Keep items", selection: Binding(get: { model.historyLimit }, set: { model.setLimit($0, images: false) })) {
                     ForEach([500, 1000, 2000, 5000, 10000], id: \.self) { Text("\($0)").tag($0) }
                 }
-                Picker("Keep images", selection: $model.imageLimit) {
+                Picker("Keep images", selection: Binding(get: { model.imageLimit }, set: { model.setLimit($0, images: true) })) {
                     ForEach([50, 100, 200, 500], id: \.self) { Text("\($0)").tag($0) }
                 }
                 LabeledContent("Pinned items", value: "Always kept")
                 Button("Clear History…", role: .destructive) { model.onClear?() }
             }
             Section {
-                Text("History is saved on this Mac and stays after a restart. Items that password managers mark as secret are never saved. To paste into other apps, Clip needs Accessibility access: System Settings → Privacy & Security → Accessibility.")
+                Text("History is saved on this Mac and stays after a restart. Items that password managers mark as secret are never saved. To paste into other apps, PasteTrove needs Accessibility access: System Settings → Privacy & Security → Accessibility.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

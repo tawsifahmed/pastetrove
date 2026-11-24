@@ -9,15 +9,17 @@ enum Kind: Int {
 struct Item: Identifiable, Equatable {
     let id: Int64
     let kind: Kind
+    let style: TextStyle
     let text: String
     let preview: String
     let app: String?
     let created: Double
     let pinned: Bool
 
-    init(id: Int64, kind: Kind, text: String, app: String?, created: Double, pinned: Bool) {
+    init(id: Int64, kind: Kind, style: TextStyle, text: String, app: String?, created: Double, pinned: Bool) {
         self.id = id
         self.kind = kind
+        self.style = style
         self.text = text
         self.app = app
         self.created = created
@@ -40,7 +42,7 @@ struct Item: Identifiable, Equatable {
 }
 
 /// A clipboard capture that is not saved yet.
-struct Clip {
+struct Capture {
     let kind: Kind
     let text: String
     /// Content that decides if two copies are the same item.
@@ -51,17 +53,28 @@ struct Clip {
 
 private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
-/// SQLite history at ~/Library/Application Support/Clip/clip.sqlite.
+/// SQLite history at ~/Library/Application Support/PasteTrove/history.sqlite.
 /// `items` holds the light rows the list needs, `reps` holds the raw data, loaded only to preview or paste.
 final class Store {
+    static let thumbnailType = "io.github.tawsifahmed.pastetrove.thumbnail"
+    static let thumbnailSize = 600
+
     private var db: OpaquePointer?
 
+    /// `PASTETROVE_DATA_DIR` points the app at another folder, for demo data and screenshots.
+    static var directory: URL {
+        if let custom = ProcessInfo.processInfo.environment["PASTETROVE_DATA_DIR"] {
+            return URL(fileURLWithPath: custom, isDirectory: true)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("PasteTrove", isDirectory: true)
+    }
+
     init() throws {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Clip", isDirectory: true)
+        let dir = Self.directory
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        guard sqlite3_open(dir.appendingPathComponent("clip.sqlite").path, &db) == SQLITE_OK else {
-            throw NSError(domain: "Clip", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot open the history database."])
+        guard sqlite3_open(dir.appendingPathComponent("history.sqlite").path, &db) == SQLITE_OK else {
+            throw NSError(domain: "PasteTrove", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot open the history database."])
         }
         sqlite3_exec(db, """
             PRAGMA auto_vacuum = INCREMENTAL;
@@ -84,25 +97,54 @@ final class Store {
             );
             CREATE INDEX IF NOT EXISTS items_order ON items (pinned DESC, created DESC);
             """, nil, nil, nil)
+        migrate()
+    }
+
+    /// Adds the `style` column to older databases and fills it once for existing text items.
+    private func migrate() {
+        guard sqlite3_exec(db, "ALTER TABLE items ADD COLUMN style INTEGER NOT NULL DEFAULT 0", nil, nil, nil) == SQLITE_OK
+        else { return }
+        var texts: [(Int64, String)] = []
+        query("SELECT id, text FROM items WHERE kind = ?", [Kind.text.rawValue]) { st in
+            texts.append((sqlite3_column_int64(st, 0), Self.string(st, 1) ?? ""))
+        }
+        sqlite3_exec(db, "BEGIN", nil, nil, nil)
+        for (id, text) in texts {
+            query("UPDATE items SET style = ? WHERE id = ?", [TextStyle(text).rawValue, id])
+        }
+        sqlite3_exec(db, "COMMIT", nil, nil, nil)
     }
 
     func items() -> [Item] {
         var out: [Item] = []
-        query("SELECT id, kind, text, app, created, pinned FROM items ORDER BY pinned DESC, created DESC") { st in
+        query("SELECT id, kind, style, text, app, created, pinned FROM items ORDER BY pinned DESC, created DESC") { st in
             out.append(Item(
                 id: sqlite3_column_int64(st, 0),
                 kind: Kind(rawValue: Int(sqlite3_column_int(st, 1))) ?? .text,
-                text: Self.string(st, 2) ?? "",
-                app: Self.string(st, 3),
-                created: sqlite3_column_double(st, 4),
-                pinned: sqlite3_column_int(st, 5) != 0
+                style: TextStyle(rawValue: Int(sqlite3_column_int(st, 2))) ?? .plain,
+                text: Self.string(st, 3) ?? "",
+                app: Self.string(st, 4),
+                created: sqlite3_column_double(st, 5),
+                pinned: sqlite3_column_int(st, 6) != 0
             ))
         }
         return out
     }
 
+    /// Unpinned items, of one kind or all, that a lower limit could remove.
+    func unpinnedCount(kind: Kind? = nil) -> Int {
+        var count = 0
+        let read: (OpaquePointer) -> Void = { count = Int(sqlite3_column_int64($0, 0)) }
+        if let kind {
+            query("SELECT COUNT(*) FROM items WHERE pinned = 0 AND kind = ?", [kind.rawValue], row: read)
+        } else {
+            query("SELECT COUNT(*) FROM items WHERE pinned = 0", row: read)
+        }
+        return count
+    }
+
     /// Saves a capture. Copying the same content again moves the old item to the top instead of adding a duplicate.
-    func save(_ clip: Clip, app: String?, limit: Int, imageLimit: Int) {
+    func save(_ clip: Capture, app: String?, limit: Int, imageLimit: Int) {
         let hash = SHA256.hash(data: Data([UInt8(clip.kind.rawValue)]) + clip.key)
             .map { String(format: "%02x", $0) }.joined()
         let now = Date().timeIntervalSince1970
@@ -113,8 +155,9 @@ final class Store {
             return
         }
         sqlite3_exec(db, "BEGIN", nil, nil, nil)
-        query("INSERT INTO items (hash, kind, text, app, created) VALUES (?, ?, ?, ?, ?)",
-              [hash, clip.kind.rawValue, String(clip.text.prefix(20_000)), app, now])
+        let style = clip.kind == .text ? TextStyle(clip.text) : .plain
+        query("INSERT INTO items (hash, kind, style, text, app, created) VALUES (?, ?, ?, ?, ?, ?)",
+              [hash, clip.kind.rawValue, style.rawValue, String(clip.text.prefix(20_000)), app, now])
         let id = sqlite3_last_insert_rowid(db)
         for (type, data) in clip.reps {
             query("INSERT INTO reps (item_id, type, data) VALUES (?, ?, ?)", [id, type, data])

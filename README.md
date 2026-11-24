@@ -1,19 +1,73 @@
-# Clip
+<p align="center">
+  <img src="docs/images/icon.png" width="128" height="128" alt="PasteTrove icon">
+</p>
 
-A small, fast clipboard history for macOS. Clip saves everything you copy (text, code, rich text, links, screenshots, files) and brings it back with one click or one shortcut.
+<h1 align="center">PasteTrove</h1>
 
-- Native Swift and AppKit/SwiftUI. No dependencies, about 1,700 lines of code.
-- Lives in the menu bar. Uses almost no CPU when idle.
-- History is saved on your Mac and stays after a restart.
-- Nothing leaves your Mac. There is no network code.
+<p align="center">
+  A fast, local clipboard history for macOS.<br>
+  Everything you copy (commands, code, PR snippets, links, screenshots, files) saved, searchable and one keystroke away.
+</p>
+
+<p align="center">
+  <a href="https://github.com/tawsifahmed/pastetrove/releases/latest/download/PasteTrove.dmg"><b>Download PasteTrove.dmg</b></a>
+  ·
+  <a href="#install-with-homebrew">Homebrew</a>
+  ·
+  <a href="https://github.com/tawsifahmed/pastetrove/releases">Releases</a>
+  ·
+  <a href="https://github.com/tawsifahmed/pastetrove/issues">Report an issue</a>
+</p>
+
+---
+
+- **Native and light.** Swift and AppKit/SwiftUI, no dependencies, about 1 MB. Lives in the menu bar and uses almost no CPU when idle.
+- **Private.** History is stored only on your Mac. There is no network code, no account and no sync.
+- **Keeps everything.** Text, rich text, code, Markdown, colors, links, images and files. History stays after a restart.
+- **Fast to use.** One shortcut, type to search, ⏎ to paste into the app you were using.
+
+## Install
+
+Requires macOS 14 (Sonoma) or later, on Apple silicon or Intel.
+
+### Download
+
+1. Download [PasteTrove.dmg](https://github.com/tawsifahmed/pastetrove/releases/latest/download/PasteTrove.dmg).
+2. Open it and drag **PasteTrove** to **Applications**.
+3. Open PasteTrove from Applications.
+
+PasteTrove is not notarized by Apple, so the first time macOS says it "cannot verify" the app. Open **System Settings → Privacy & Security**, scroll down and click **Open Anyway**. Or run this once in Terminal:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/PasteTrove.app
+```
+
+### Install with Homebrew
+
+```sh
+brew tap tawsifahmed/pastetrove https://github.com/tawsifahmed/pastetrove
+brew trust tawsifahmed/pastetrove
+brew install --cask pastetrove
+```
+
+`brew trust` is needed once on Homebrew versions that only load casks from taps you trust. The cask clears the download quarantine flag for you.
+
+Update with `brew upgrade --cask pastetrove`. Uninstall with `brew uninstall --cask pastetrove`, and add `--zap` to also remove your history and settings.
+
+### First start
+
+PasteTrove asks for two permissions. Both are needed only once.
+
+1. **Accessibility** (shown as "Device Control and Data Access" on newer macOS). PasteTrove uses it to press ⌘V in the app you paste into. Without it, PasteTrove still copies the item and you press ⌘V yourself.
+2. **Paste from Other Apps.** macOS asks each time an app reads the clipboard. In **System Settings → Privacy & Security → Paste from Other Apps**, set PasteTrove to **Always Allow**.
+
+PasteTrove also turns on **Launch at login**, so your history is ready after a restart. You can turn it off in Settings.
 
 ## Use
 
-Click the Clip icon in the menu bar, or press **⇧⌘V** (you can change it in Settings). Type to search, press **⏎** to paste into the app you were using.
+Click the **P** in the menu bar, or press **⇧⌘V** (you can change it in Settings). Type to search, press **⏎** to paste.
 
-When you copy something, Clip plays a short sound and the menu bar icon flips. You can turn off the sound in Settings.
-
-Right-click the icon (or ⌥-click) for the menu: Settings, Pause Recording, Clear History, Quit.
+When you copy something, PasteTrove plays a short sound and the menu bar icon flips. You can turn off the sound in Settings.
 
 ### Layouts
 
@@ -22,76 +76,89 @@ Pick a layout from the button in the bottom-left corner of the panel, or press �
 | Layout | Shows |
 |---|---|
 | Plain List | One line per item. The most items on screen. |
-| Rich List | Source app, age, and up to 5 lines of text or a large image thumbnail. |
+| Rich List | Source app, age, and up to 5 lines of text or a large image. |
 | Grid View | Cards in two columns. Best for screenshots and images. |
 
-Press **Space** (with an empty search field) or ⌘Y to open a large preview beside the panel.
+Press **Space** (with an empty search field) or **⌘Y** to open a large preview beside the panel.
+
+### Filters
+
+All, Text, Code, Links, Images, Files and Pinned. Press ⇥ to go to the next filter.
+
+PasteTrove recognizes **code** (terminal commands, source code, JSON, SQL), **Markdown** (for example a PR description) and **color values** (`#5b4cf2`, `rgb(…)`). Code shows in a monospaced font, and colors show a swatch.
 
 ### Keys
 
 | Key | Action |
 |---|---|
 | Type | Search (every word must match) |
-| ↑ ↓, ⌃N ⌃P | Move selection (← → also move in Grid View) |
-| ⌘↑ ⌘↓, Page Up/Down | Jump to top/bottom, move by 10 |
+| ↑ ↓, ⌃N ⌃P | Move the selection (← → also move in Grid View) |
+| ⌘↑ ⌘↓, Page Up / Page Down | Jump to the top or bottom, move by 10 |
 | ⏎ | Paste |
 | ⇧⏎ | Paste as plain text |
-| ⌘⏎ | Copy only, do not paste |
-| ⌘1 … ⌘9 | Paste item 1–9 |
+| ⌘⏎ | Copy and close, do not paste |
+| ⌘C | Copy and keep the panel open |
+| Hold ⌘, then 1 … 9 | Paste one of the first nine visible items. Holding ⌘ shows the numbers. |
 | Space, ⌘Y | Preview |
-| ⇥ / ⇧⇥ | Next / previous filter (All, Text, Links, Images, Files, Pinned) |
-| ⌘P | Pin or unpin (pinned items stay at the top and are never removed) |
-| ⌘⌫ | Delete item |
+| ⇥ / ⇧⇥ | Next / previous filter |
+| ⌘P | Pin or unpin. Pinned items stay at the top and are never removed. |
+| ⌘⌫ | Delete the item |
 | ⌘L | Next layout |
 | ⌘, | Settings |
-| esc | Clear search, then close |
+| esc | Clear the search, then close |
 
-Double-click an item to paste it.
+Click an item to select it, double-click to paste. Right-click an item for Paste, Paste as Plain Text, Copy, Preview, Pin, Open Link, Show in Finder and Delete.
 
-## Install
+The gear menu has About, Settings, Pause Recording, Check for Updates, Clear History and Quit. Right-click the menu bar icon for the same menu.
 
-Requirements: macOS 14 or later, Xcode 15 or later (or the Swift 5.10+ command line tools).
+### Settings
 
-```bash
-git clone https://github.com/tawsifahmed/clip.git Clip
-cd Clip
-./build.sh install    # builds, copies Clip.app to /Applications and starts it
-```
+- **Open PasteTrove**: click the button, then press the new shortcut. It needs ⌘, ⌥ or ⌃. Press esc to cancel.
+- **When appears**: where the shortcut opens the panel: near the menu bar icon (default), near the cursor, or in the center of the screen.
+- **Layout**, **Launch at login**, **Play sound when copying**
+- **Clipboard access**: shows whether "Always Allow" is set, with a button to fix it.
+- **Keep items** (500 to 10,000, default 2,000) and **Keep images** (50 to 500, default 200). The oldest unpinned items are removed first. Lowering a limit asks before deleting anything.
+- **Clear History** removes all unpinned items.
 
-`./build.sh` alone builds `build/Clip.app` without installing it.
+### Open from other tools
 
-On first start:
-
-1. macOS asks for **Accessibility** access. Clip needs it to send ⌘V to the app you paste into. Without it, Clip still copies the item, and you press ⌘V yourself.
-2. Clip turns on **Launch at login**. You can turn it off in Settings.
-
-The build is signed ad hoc (no Apple developer certificate). After you rebuild, macOS can ask for Accessibility access again. If pasting stops working, remove Clip from System Settings → Privacy & Security → Accessibility and add it again.
-
-## Settings
-
-Open from the gear in the panel, the right-click menu, or ⌘, in the panel.
-
-- **Open Clip**: click the button, then press the new shortcut. It must include ⌘, ⌥ or ⌃. Press esc to cancel.
-- **When appears**: where the shortcut opens the panel: near the status icon (default), near the cursor, or in the center of the screen.
-- **Layout**: Plain List, Rich List or Grid View.
-- **Launch at login** and **Play sound when copying**
-- **Keep items**: 500 to 10,000 (default 2,000). **Keep images**: 50 to 500 (default 200). The oldest unpinned items are removed first.
-- **Clear History**: removes all unpinned items.
+`pastetrove://open` opens the panel, for Shortcuts, Raycast or scripts. Add `?layout=plain`, `rich` or `grid` to pick a layout.
 
 ## Privacy
 
-- Clip ignores items that password managers mark as secret or temporary ([nspasteboard.org](http://nspasteboard.org) markers, used by 1Password, Bitwarden, KeePassXC and others).
-- History is stored in `~/Library/Application Support/Clip/clip.sqlite`. Delete that file to remove all history.
+- PasteTrove ignores items that password managers mark as secret or temporary ([nspasteboard.org](http://nspasteboard.org) markers, used by 1Password, Bitwarden, KeePassXC and others).
+- History is stored in `~/Library/Application Support/PasteTrove/history.sqlite`. Delete that folder to remove all history.
 
-## How it works
+## Build from source
+
+Requirements: macOS 14 or later, Xcode 15 or later (or the Swift 5.10+ command line tools).
+
+```sh
+git clone https://github.com/tawsifahmed/pastetrove.git
+cd pastetrove
+scripts/create-signing-cert.sh   # once per Mac, optional
+scripts/build.sh install         # builds, copies PasteTrove.app to /Applications and starts it
+```
+
+`scripts/create-signing-cert.sh` creates a local signing certificate. With it, every build keeps the same identity, so macOS keeps PasteTrove's permissions after you rebuild. Without it, builds are signed ad hoc and macOS asks again after each build.
+
+| Script | Does |
+|---|---|
+| `scripts/build.sh [install \| universal]` | Builds `build/PasteTrove.app` |
+| `scripts/release.sh` | Universal build, `dist/PasteTrove-<version>.zip` and `dist/PasteTrove.dmg`, and the zip's sha256 in the cask |
+| `scripts/make-icon.sh` | Redraws the app icon from `BrandMark.swift` |
+
+### How it works
 
 | Part | File | What it does |
 |---|---|---|
-| Clipboard watcher | `Monitor.swift` | Reads `NSPasteboard.changeCount` every 0.25 s (macOS has no change event). Saves new content with the app it came from. Writes items back for pasting. |
-| Storage | `Store.swift` | SQLite. `items` has the small rows the list needs. `reps` has the raw clipboard data per type (plain text, RTF, HTML, PNG, file URLs), loaded only to preview or paste. Same content copied again moves to the top instead of making a duplicate (SHA-256 key). |
+| Clipboard watcher | `Monitor.swift` | Reads `NSPasteboard.changeCount` four times a second (macOS has no change event). Saves new content with the app it came from. Writes items back for pasting. |
+| Storage | `Store.swift` | SQLite. `items` has the small rows the list needs. `reps` has the raw clipboard data per type, loaded only to preview or paste. The same content copied again moves to the top instead of making a duplicate. |
+| Text types | `TextStyle.swift` | Recognizes code, Markdown and colors once, when an item is saved. |
 | Panel | `Panel.swift` | A non-activating floating panel, so the app you came from stays active and receives the paste. Three layouts, preview window, in-memory search. |
 | Shortcut and settings | `Settings.swift` | Global hotkey through Carbon `RegisterEventHotKey`, shortcut recorder, limits, launch at login through `SMAppService`. |
-| App | `main.swift` | Menu bar icon, copy sound and icon flip, and the ⌘V key event that pastes. |
+| Brand | `BrandMark.swift`, `About.swift` | The P mark for the menu bar and app icon, and the About window. |
+| App | `main.swift` | Menu bar icon, menus, copy sound and icon flip, and the ⌘V key event that pastes. |
 
 ## License
 

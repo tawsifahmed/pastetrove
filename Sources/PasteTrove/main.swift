@@ -8,16 +8,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var panel: PanelController!
     private var hotkey: Hotkey!
     private var settings: SettingsController!
+    private let about = AboutController()
     private var statusItem: NSStatusItem!
     private let statusMenu = NSMenu()
-    private let openItem = NSMenuItem(title: "Open Clip", action: #selector(openPanel), keyEquivalent: "")
+    private var askedAccessibility = false
+    private let openItem = NSMenuItem(title: "Open PasteTrove", action: #selector(openPanel), keyEquivalent: "")
     private let pauseItem = NSMenuItem(title: "Pause Recording", action: #selector(togglePause), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
             store = try Store()
         } catch {
-            fatalError("Clip: \(error.localizedDescription)")
+            fatalError("PasteTrove: \(error.localizedDescription)")
         }
         model = Model(store: store)
         monitor = Monitor(store: store)
@@ -29,7 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         panel = PanelController(model: model)
         panel.onPick = { [weak self] item, mode in self?.use(item, mode) }
-        panel.onSettings = { [weak self] in self?.settings.show() }
+        // ⌘C in the panel keeps the list order still, so the copied item does not jump away.
+        panel.onCopy = { [weak self] item in self?.monitor.write(item, plain: false, touch: false) }
+        panel.onCommand = { [weak self] in self?.run($0) }
 
         hotkey = Hotkey { [weak self] in self?.togglePanel(placement: Settings.placement) }
         hotkey.register(Settings.shortcut)
@@ -45,19 +49,59 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         setupMainMenu()
         Settings.firstRun()
         if !AXIsProcessTrusted() { requestAccessibility() }
+        if !Settings.clipboardAllowed { explainClipboardAccess() }
+    }
+
+    /// Without "Always Allow", macOS shows an Allow/Deny prompt on every copy PasteTrove reads.
+    private func explainClipboardAccess() {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "Let PasteTrove read the clipboard"
+        alert.informativeText = """
+            macOS asks for permission each time PasteTrove saves something you copied.
+
+            To stop the prompts: copy something and click Allow once. Then open System Settings → \
+            Privacy & Security → Paste from Other Apps, and set PasteTrove to Always Allow.
+            """
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Later")
+        if alert.runModal() == .alertFirstButtonReturn {
+            Settings.openClipboardPrivacySettings()
+        }
+    }
+
+    /// `pastetrove://open` opens the panel, for Shortcuts, Raycast or scripts.
+    /// Optional query items: `layout=plain|rich|grid`, `preview=1`.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let url = urls.first, url.host == "open" else { return }
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        if let layout = query.first(where: { $0.name == "layout" })?.value.flatMap(Layout.init(rawValue:)) {
+            model.layout = layout
+        }
+        panel.show(at: statusItem.button?.window.map { .below($0.frame) } ?? .center)
+        if query.contains(where: { $0.name == "preview" && $0.value == "1" }) {
+            panel.togglePreview()
+        }
     }
 
     private func use(_ item: Item, _ mode: PickMode) {
         monitor.write(item, plain: mode == .plain)
         model.reload()
-        guard mode != .copy, requestAccessibility() else { return }
+        guard mode != .copy else { return }
+        // Without Accessibility access the item is only copied; you press ⌘V yourself.
+        guard AXIsProcessTrusted() else {
+            requestAccessibility()
+            return
+        }
         // Give the previous app a moment to take the keyboard back.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { Self.pressCommandV() }
     }
 
     /// Pasting means sending ⌘V to another app, which macOS allows only with Accessibility access.
-    @discardableResult
-    private func requestAccessibility() -> Bool {
+    /// The system prompt shows at most once per launch.
+    private func requestAccessibility() {
+        guard !askedAccessibility else { return }
+        askedAccessibility = true
         AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
     }
 
@@ -124,7 +168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "list.clipboard", accessibilityDescription: "Clip")
+        statusItem.button?.image = BrandMark.menuBarImage()
+        statusItem.button?.setAccessibilityLabel("PasteTrove")
         statusItem.button?.target = self
         statusItem.button?.action = #selector(statusClicked)
         statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
@@ -132,12 +177,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         let items = [
             openItem,
+            .separator(),
+            NSMenuItem(title: "About PasteTrove", action: #selector(openAbout), keyEquivalent: ""),
             NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","),
             .separator(),
             pauseItem,
+            NSMenuItem(title: "Check for Updates…", action: #selector(openReleases), keyEquivalent: ""),
             NSMenuItem(title: "Clear History…", action: #selector(clearHistory), keyEquivalent: ""),
             .separator(),
-            NSMenuItem(title: "Quit Clip", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
+            NSMenuItem(title: "Quit PasteTrove", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
         ]
         for item in items {
             if item.action != #selector(NSApplication.terminate(_:)) { item.target = self }
@@ -162,7 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
-        openItem.title = "Open Clip    \(Settings.shortcut.label)"
+        openItem.title = "Open PasteTrove    \(Settings.shortcut.label)"
         pauseItem.state = monitor.paused ? .on : .off
     }
 
@@ -170,12 +218,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         togglePanel(placement: .statusIcon)
     }
 
+    private func run(_ command: PanelCommand) {
+        switch command {
+        case .about: openAbout()
+        case .settings: openSettings()
+        case .togglePause: togglePause()
+        case .updates: openReleases()
+        case .clearHistory: clearHistory()
+        case .quit: NSApp.terminate(nil)
+        }
+    }
+
+    @objc private func openAbout() {
+        about.show()
+    }
+
     @objc private func openSettings() {
         settings.show()
     }
 
+    /// No auto-updater: new versions are on GitHub Releases and through `brew upgrade`.
+    @objc private func openReleases() {
+        NSWorkspace.shared.open(AboutController.releasesURL)
+    }
+
     @objc private func togglePause() {
         monitor.paused.toggle()
+        model.paused = monitor.paused
     }
 
     @objc private func clearHistory() {

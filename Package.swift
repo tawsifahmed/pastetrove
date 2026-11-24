@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "Clip",
+    name: "PasteTrove",
     platforms: [.macOS(.v14)],
     targets: [
         .executableTarget(
-            name: "Clip",
-            path: "Sources/Clip",
+            name: "PasteTrove",
+            path: "Sources/PasteTrove",
             linkerSettings: [.linkedLibrary("sqlite3"), .linkedFramework("Carbon")]
         )
     ]

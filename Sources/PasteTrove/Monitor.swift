@@ -10,7 +10,7 @@ final class Monitor {
     private let pasteboard = NSPasteboard.general
     private var lastChange: Int
 
-    private static let fileList = "dev.clip.file-urls"
+    private static let fileList = "io.github.tawsifahmed.pastetrove.file-urls"
     private static let maxSize = 30_000_000
 
     /// Markers that password managers and similar apps put on data that must not be recorded (nspasteboard.org).
@@ -32,6 +32,8 @@ final class Monitor {
 
     func start() {
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in self?.check() }
+        // Slack lets macOS group this wake-up with others, which saves energy.
+        timer.tolerance = 0.1
         RunLoop.main.add(timer, forMode: .common)
     }
 
@@ -48,11 +50,11 @@ final class Monitor {
         onCapture?()
     }
 
-    private func read(_ types: [String]) -> Clip? {
+    private func read(_ types: [String]) -> Capture? {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty {
             let list = Data(urls.map(\.absoluteString).joined(separator: "\n").utf8)
-            return Clip(kind: .file, text: urls.map(\.path).joined(separator: "\n"), key: list, reps: [(Self.fileList, list)])
+            return Capture(kind: .file, text: urls.map(\.path).joined(separator: "\n"), key: list, reps: [(Self.fileList, list)])
         }
         if let string = pasteboard.string(forType: .string),
            !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -62,28 +64,31 @@ final class Monitor {
                     reps.append((type.rawValue, data))
                 }
             }
-            return Clip(kind: Self.isLink(string) ? .link : .text, text: string, key: Data(string.utf8), reps: reps)
+            return Capture(kind: Self.isLink(string) ? .link : .text, text: string, key: Data(string.utf8), reps: reps)
         }
         if let png = pasteboard.data(forType: .png) ?? pasteboard.data(forType: .tiff).flatMap(Self.png),
            png.count < Self.maxSize,
            let image = NSBitmapImageRep(data: png) {
-            return Clip(kind: .image, text: "Image \(image.pixelsWide)×\(image.pixelsHigh)", key: png,
-                        reps: [(NSPasteboard.PasteboardType.png.rawValue, png)])
+            var reps = [(NSPasteboard.PasteboardType.png.rawValue, png)]
+            if let thumbnail = Self.thumbnail(png) { reps.append((Store.thumbnailType, thumbnail)) }
+            return Capture(kind: .image, text: "Image \(image.pixelsWide)×\(image.pixelsHigh)", key: png, reps: reps)
         }
         return nil
     }
 
     /// Puts an item back on the clipboard. `plain` drops rich text and keeps only the plain string.
-    func write(_ item: Item, plain: Bool) {
+    /// `touch` moves the item to the top of the history.
+    func write(_ item: Item, plain: Bool, touch: Bool = true) {
         let reps = store.reps(item.id)
+        func data(_ type: String) -> Data? { reps.first { $0.0 == type }?.1 }
         pasteboard.clearContents()
         switch item.kind {
         case .file:
-            let urls = reps.first.flatMap { String(data: $0.1, encoding: .utf8) }?
+            let urls = data(Self.fileList).flatMap { String(data: $0, encoding: .utf8) }?
                 .split(separator: "\n").compactMap { URL(string: String($0)) } ?? []
             pasteboard.writeObjects(urls as [NSURL])
         case .image:
-            guard let png = reps.first?.1 else { break }
+            guard let png = data(NSPasteboard.PasteboardType.png.rawValue) else { break }
             pasteboard.declareTypes([.png, .tiff], owner: nil)
             pasteboard.setData(png, forType: .png)
             if let tiff = NSBitmapImageRep(data: png)?.tiffRepresentation {
@@ -97,7 +102,15 @@ final class Monitor {
             }
         }
         lastChange = pasteboard.changeCount
-        store.touch(item.id)
+        if touch { store.touch(item.id) }
+    }
+
+    /// Small JPEG saved next to each image, so lists never decode the full screenshot.
+    private static func thumbnail(_ png: Data) -> Data? {
+        guard let image = Cache.scaled(CGImageSourceCreateWithData(png as CFData, nil), Store.thumbnailSize),
+              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        else { return nil }
+        return NSBitmapImageRep(cgImage: cgImage).representation(using: .jpeg, properties: [.compressionFactor: 0.8])
     }
 
     private static func isLink(_ string: String) -> Bool {
