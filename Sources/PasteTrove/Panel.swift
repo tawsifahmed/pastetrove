@@ -426,14 +426,14 @@ final class PanelController: NSObject, NSWindowDelegate {
             guard let number = Self.digits[key] else { return false }
             let index = model.firstVisible + number - 1
             guard model.shown.indices.contains(index) else { return true }
-            // Copy and flash first, so you see which item it was, then close and paste.
+            // Flash first, so you see which item it was, then close and paste: one clipboard write.
             let item = model.shown[index]
             model.select(item)
-            copy(item)
+            model.flash(item)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                // Skip if the panel closed meanwhile (you switched apps), so the paste never lands elsewhere.
-                guard let self, panel.isVisible else { return }
-                pick(item, shift ? .plain : .paste)
+                guard let self else { return }
+                // If the panel closed meanwhile (you switched apps), only copy, so the paste never lands elsewhere.
+                if panel.isVisible { pick(item, shift ? .plain : .paste) } else { onCopy?(item) }
             }
         }
         return true
@@ -1185,26 +1185,17 @@ enum Cache {
     /// Files with no thumbnail (not an image, too large, unreadable), so redraws never ask the disk again.
     private static var noThumbnail: Set<String> = []
     /// Decoded thumbnails, bounded by memory; the cost of each is its pixel size.
-    private static let images: NSCache<NSString, NSImage> = {
-        let cache = NSCache<NSString, NSImage>()
-        cache.totalCostLimit = 150 * 1024 * 1024
+    private static let images: NSCache<NSString, NSImage> = make(cost: 150 * 1024 * 1024)
+    private static let texts: NSCache<NSNumber, NSString> = make(count: 30)
+    private static let sizes: NSCache<NSNumber, NSString> = make(count: 30)
+    private static let fileIcons: NSCache<NSString, NSImage> = make(count: 300)
+
+    private static func make<Key, Value>(count: Int = 0, cost: Int = 0) -> NSCache<Key, Value> {
+        let cache = NSCache<Key, Value>()
+        cache.countLimit = count
+        cache.totalCostLimit = cost
         return cache
-    }()
-    private static let texts: NSCache<NSNumber, NSString> = {
-        let cache = NSCache<NSNumber, NSString>()
-        cache.countLimit = 30
-        return cache
-    }()
-    private static let sizes: NSCache<NSNumber, NSString> = {
-        let cache = NSCache<NSNumber, NSString>()
-        cache.countLimit = 30
-        return cache
-    }()
-    private static let fileIcons: NSCache<NSString, NSImage> = {
-        let cache = NSCache<NSString, NSImage>()
-        cache.countLimit = 300
-        return cache
-    }()
+    }
 
     static func fileIcon(_ path: String) -> NSImage {
         if let hit = fileIcons.object(forKey: path as NSString) { return hit }
