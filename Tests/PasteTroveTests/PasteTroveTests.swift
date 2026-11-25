@@ -78,3 +78,34 @@ func age(seconds: Double, label: String) {
     model.open()
     #expect(model.query.isEmpty && model.shown.count == 11 && model.toTop == 3)
 }
+
+@Test func versionOrder() {
+    #expect(Updater.isNewer("0.1.4", than: "0.1.3"))
+    #expect(Updater.isNewer("0.1.10", than: "0.1.9"))
+    #expect(Updater.isNewer("1.0", than: "0.9.9"))
+    #expect(Updater.isNewer("0.2", than: "0.1.9"))
+    #expect(!Updater.isNewer("0.1.3", than: "0.1.3"))
+    #expect(!Updater.isNewer("0.1.3", than: "0.1.4"))
+    #expect(!Updater.isNewer("0.1", than: "0.1.0"))
+}
+
+@Test func readsAGitHubRelease() throws {
+    let json = """
+    {"tag_name": "v0.1.4", "body": "## 0.1.4 - 2026-11-26\\n\\n### Fixes\\n- **open:** Shows the `panel`.",
+     "html_url": "https://github.com/tawsifahmed/pastetrove/releases/tag/v0.1.4",
+     "assets": [
+       {"name": "PasteTrove.dmg", "size": 10, "digest": "sha256:aa", "browser_download_url": "https://example.com/PasteTrove.dmg"},
+       {"name": "PasteTrove-0.1.4.zip", "size": 20, "digest": null, "browser_download_url": "https://example.com/PasteTrove-0.1.4.zip"}
+     ]}
+    """
+    let release = try JSONDecoder().decode(Release.self, from: Data(json.utf8))
+    #expect(release.version == "0.1.4")
+    #expect(release.zip?.name == "PasteTrove-0.1.4.zip")
+    #expect(release.zip?.digest == nil)
+    #expect(Updater.plainNotes(release.notes ?? "") == "Fixes\n• open: Shows the panel.")
+}
+
+@Test func aRateLimitReplyIsNotARelease() {
+    let json = #"{"message": "API rate limit exceeded", "documentation_url": "https://docs.github.com"}"#
+    #expect((try? JSONDecoder().decode(Release.self, from: Data(json.utf8))) == nil)
+}

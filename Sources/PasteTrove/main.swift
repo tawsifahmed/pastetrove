@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var hotkey: Hotkey!
     private var settings: SettingsController!
     private let about = AboutController()
+    private let updater = Updater()
     private var statusItem: NSStatusItem!
     private let statusMenu = NSMenu()
     private var askedAccessibility = false
@@ -16,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var launchURLs: [URL] = []
     private let openItem = NSMenuItem(title: "Open PasteTrove", action: #selector(openPanel), keyEquivalent: "")
     private let pauseItem = NSMenuItem(title: "Pause Recording", action: #selector(togglePause), keyEquivalent: "")
+    private let updatesItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdates), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -45,6 +47,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.store.trim(limit: Settings.historyLimit, imageLimit: Settings.imageLimit)
             self?.model.reload()
         }
+        settings.onCheckUpdates = { [weak self] in self?.checkForUpdates() }
+        updater.onChange = { [weak self] in self?.model.updateVersion = self?.updater.available?.version }
+        updater.start()
 
         setupStatusItem()
         setupMainMenu()
@@ -221,7 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","),
             .separator(),
             pauseItem,
-            NSMenuItem(title: "Check for Updates…", action: #selector(openReleases), keyEquivalent: ""),
+            updatesItem,
             NSMenuItem(title: "Clear History…", action: #selector(clearHistory), keyEquivalent: ""),
             .separator(),
             NSMenuItem(title: "Quit PasteTrove", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
@@ -251,6 +256,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
         openItem.title = "Open PasteTrove    \(Settings.shortcut.label)"
         pauseItem.state = monitor.paused ? .on : .off
+        let version = updater.available?.version
+        updatesItem.title = version.map { "Update to \($0)…" } ?? "Check for Updates…"
+        updatesItem.image = version == nil ? nil : NSImage(systemSymbolName: "circle.fill", accessibilityDescription: "Update available")?
+            .withSymbolConfiguration(.init(pointSize: 7, weight: .regular).applying(.init(paletteColors: [.systemOrange])))
     }
 
     @objc private func openPanel() {
@@ -262,7 +271,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .about: openAbout()
         case .settings: openSettings()
         case .togglePause: togglePause()
-        case .updates: openReleases()
+        case .updates: checkForUpdates()
         case .clearHistory: clearHistory()
         case .quit: NSApp.terminate(nil)
         }
@@ -276,9 +285,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.show()
     }
 
-    /// No auto-updater: new versions are on GitHub Releases and through `brew upgrade`.
-    @objc private func openReleases() {
-        NSWorkspace.shared.open(AboutController.releasesURL)
+    /// Offers the update that is already known, or asks GitHub now.
+    @objc private func checkForUpdates() {
+        if let release = updater.available { updater.offer(release) } else { updater.check(manual: true) }
     }
 
     @objc private func togglePause() {

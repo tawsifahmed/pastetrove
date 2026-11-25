@@ -323,13 +323,17 @@ struct PanelView: View {
                 .keyboardShortcut(",", modifiers: .command)
             Divider()
             Button(model.paused ? "Resume Recording" : "Pause Recording") { command(.togglePause) }
-            Button("Check for Updates…") { command(.updates) }
+            Button(model.updateVersion.map { "Update to \($0)…" } ?? "Check for Updates…") { command(.updates) }
             Divider()
             Button("Clear History…") { command(.clearHistory) }
             Button("Quit PasteTrove") { command(.quit) }
                 .keyboardShortcut("q", modifiers: .command)
         } label: {
             Image(systemName: "gearshape").font(.system(size: 15))
+                .overlay(alignment: .topTrailing) {
+                    // An update is waiting.
+                    if model.updateVersion != nil { Circle().fill(.orange).frame(width: 7, height: 7).offset(x: 2, y: -2) }
+                }
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
