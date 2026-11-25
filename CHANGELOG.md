@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 - 2026-11-25
+
+### Fixes
+- **open:** Opening PasteTrove while it runs (from Spotlight, Finder or Launchpad) shows the panel. Before, nothing happened.
+- **links:** A `pastetrove://` link that starts PasteTrove no longer crashes it. The link opens the panel or Settings once the app is ready.
+- **build:** Spotlight shows one PasteTrove on a Mac that builds the app from source. Local builds go to `build.noindex/`.
+
 ## 0.1.2 - 2026-11-24
 
 ### Features
