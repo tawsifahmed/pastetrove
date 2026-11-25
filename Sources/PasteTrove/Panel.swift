@@ -481,7 +481,16 @@ struct PanelView: View {
             .help("Layout (⌘L)")
             .frame(width: 60, alignment: .leading)
             Spacer()
-            Text(counted(model.shown.count, "item"))
+            if let version = model.updateVersion {
+                Button("Update to \(version)", systemImage: "arrow.up") { command(.updates) }
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .foregroundStyle(.tint)
+                    .help("Install PasteTrove \(version)")
+            } else {
+                Text(counted(model.shown.count, "item"))
+            }
             Spacer()
             Button(action: togglePreview) { Image(systemName: "eye") }
                 .buttonStyle(.plain)
@@ -492,6 +501,7 @@ struct PanelView: View {
         .foregroundStyle(.secondary)
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+        .animation(.easeOut(duration: 0.25), value: model.updateVersion)
     }
 }
 

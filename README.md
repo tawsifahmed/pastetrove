@@ -72,6 +72,8 @@ Click the **P** in the menu bar, or press **⇧⌘V** (you can change it in Sett
 
 When you copy something, PasteTrove plays a short sound and the menu bar icon flips. You can turn off the sound in Settings.
 
+When a new version is ready, the item count at the bottom of the panel turns into an **Update to …** button.
+
 ### Layouts
 
 Pick a layout from the button in the bottom-left corner of the panel, or press ⌘L. Drag any edge of the panel to resize it; PasteTrove remembers the size, and Grid View adds columns as the panel gets wider.

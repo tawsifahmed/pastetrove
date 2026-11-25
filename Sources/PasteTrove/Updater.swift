@@ -95,8 +95,8 @@ final class Updater {
             if manual { upToDate() }
             return
         }
-        available = release
-        if manual || release.version != Settings.skippedVersion { offer(release) }
+        available = manual || release.version != Settings.skippedVersion ? release : nil
+        if let available { offer(available) }
     }
 
     func offer(_ release: Release) {
@@ -115,7 +115,9 @@ final class Updater {
         Settings.autoUpdate = alert.suppressionButton?.state == .on
         switch answer {
         case .alertFirstButtonReturn: install(release)
-        case .alertThirdButtonReturn: Settings.skippedVersion = release.version
+        case .alertThirdButtonReturn:
+            Settings.skippedVersion = release.version
+            available = nil
         default: break
         }
     }
