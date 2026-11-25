@@ -20,9 +20,18 @@ enum Cache {
         return cache
     }
 
+    /// Another app's private folder. macOS blocks reading it and shows a "Data Access Blocked" notice.
+    static func isOtherAppData(_ path: String) -> Bool {
+        let library = NSHomeDirectory() + "/Library/"
+        return path.hasPrefix(library + "Containers/") || path.hasPrefix(library + "Group Containers/")
+    }
+
     static func fileIcon(_ path: String) -> NSImage {
         if let hit = fileIcons.object(forKey: path as NSString) { return hit }
-        let icon = NSWorkspace.shared.icon(forFile: path)
+        // The icon by type needs no disk access.
+        let icon = isOtherAppData(path)
+            ? NSWorkspace.shared.icon(for: UTType(filenameExtension: (path as NSString).pathExtension) ?? .data)
+            : NSWorkspace.shared.icon(forFile: path)
         fileIcons.setObject(icon, forKey: path as NSString)
         return icon
     }
@@ -67,7 +76,8 @@ enum Cache {
         if let hit = images.object(forKey: key as NSString) { return hit }
         guard !noThumbnail.contains(key) else { return nil }
         // Skip huge files: decoding them would stall the list.
-        guard UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true,
+        guard !isOtherAppData(url.path),
+              UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true,
               let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes < 25_000_000,
               let image = scaled(CGImageSourceCreateWithURL(url as CFURL, nil), size)
         else {

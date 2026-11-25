@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Testing
 @testable import PasteTrove
 
@@ -33,6 +33,36 @@ func age(seconds: Double, label: String) {
     #expect(!Monitor.isLink("see https://example.com"))
     #expect(!Monitor.isLink("ftp://example.com"))
     #expect(!Monitor.isLink("example.com"))
+}
+
+@Test func otherAppsPrivateFolders() {
+    let home = NSHomeDirectory()
+    #expect(Cache.isOtherAppData(home + "/Library/Containers/ru.keepcoder.Telegram/Data/tmp/photo.jpg"))
+    #expect(Cache.isOtherAppData(home + "/Library/Group Containers/group.com.apple.notes/a.png"))
+    #expect(!Cache.isOtherAppData(home + "/Desktop/photo.jpg"))
+    #expect(!Cache.isOtherAppData(home + "/Library/Caches/photo.jpg"))
+}
+
+@Test func keepsThePictureNotAnotherAppsTempFile() throws {
+    setenv("PASTETROVE_DATA_DIR", NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)", 1)
+    let pasteboard = NSPasteboard(name: .init("pastetrove-test-\(UUID().uuidString)"))
+    defer { pasteboard.releaseGlobally() }
+    let monitor = Monitor(store: try Store(), pasteboard: pasteboard)
+    let pixel = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4,
+                                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    let png = try #require(pixel.representation(using: .png, properties: [:]))
+    func copy(_ path: String, image: Bool) -> Kind? {
+        let entry = NSPasteboardItem()
+        entry.setString(URL(fileURLWithPath: path).absoluteString, forType: .fileURL)
+        if image { entry.setData(png, forType: .png) }
+        pasteboard.clearContents()
+        pasteboard.writeObjects([entry])
+        return monitor.read(pasteboard.types?.map(\.rawValue) ?? [])?.kind
+    }
+    let telegram = NSHomeDirectory() + "/Library/Containers/ru.keepcoder.Telegram/Data/tmp/photo.jpg"
+    #expect(copy(telegram, image: true) == .image)
+    #expect(copy(telegram, image: false) == .file)
+    #expect(copy(NSHomeDirectory() + "/Desktop/photo.jpg", image: true) == .file)
 }
 
 @Test func searchIgnoresCaseAndAccents() {
