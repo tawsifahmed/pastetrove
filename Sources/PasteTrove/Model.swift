@@ -214,6 +214,14 @@ final class Model: ObservableObject {
     }
 
     static func fold(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        // Hyphens are dropped, so "wifi" finds "Wi-Fi" and "email" finds "e-mail".
+        String(text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).compactMap { $0 == "-" ? nil : lookalikes[$0] ?? $0 })
     }
+
+    /// Text read from images sometimes comes back with Cyrillic or Greek letters that look Latin ("НТТР"),
+    /// so both sides of a search treat them as their Latin twins.
+    private static let lookalikes: [Character: Character] = [
+        "а": "a", "в": "b", "е": "e", "к": "k", "м": "m", "н": "h", "о": "o", "р": "p", "с": "c", "т": "t", "у": "y", "х": "x",
+        "α": "a", "ε": "e", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t", "υ": "u", "χ": "x",
+    ]
 }

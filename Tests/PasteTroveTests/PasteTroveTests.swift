@@ -38,6 +38,8 @@ func age(seconds: Double, label: String) {
 @Test func searchIgnoresCaseAndAccents() {
     #expect(Model.fold("Café ÉCLAIR") == "cafe eclair")
     #expect(Model.fold("Crème").contains(Model.fold("CREME")))
+    #expect(Model.fold("НТТР/1.1 502").contains(Model.fold("http")))
+    #expect(Model.fold("Wi-Fi: BlueDoor-5G").contains(Model.fold("wifi")))
 }
 
 @Test func countedNouns() {
