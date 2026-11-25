@@ -1,5 +1,5 @@
 #!/bin/bash
-# scripts/build.sh            build build/PasteTrove.app for this Mac
+# scripts/build.sh            build build.noindex/PasteTrove.app for this Mac
 # scripts/build.sh install    build, copy to /Applications, relaunch
 # scripts/build.sh universal  build for Apple silicon and Intel (used by release.sh)
 set -euo pipefail
@@ -8,7 +8,8 @@ ARCH_FLAGS=()
 [[ "${1:-}" == "universal" ]] && ARCH_FLAGS=(--arch arm64 --arch x86_64)
 swift build -c release "${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}"
 BIN="$(swift build -c release "${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}" --show-bin-path)/PasteTrove"
-APP=build/PasteTrove.app
+# ".noindex" keeps this copy out of Spotlight, so only the installed app shows there.
+APP=build.noindex/PasteTrove.app
 rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/PasteTrove"
 cp Info.plist "$APP/Contents/"

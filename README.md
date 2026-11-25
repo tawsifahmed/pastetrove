@@ -155,7 +155,7 @@ scripts/build.sh install         # builds, copies PasteTrove.app to /Application
 
 | Script | Does |
 |---|---|
-| `scripts/build.sh [install \| universal]` | Builds `build/PasteTrove.app` |
+| `scripts/build.sh [install \| universal]` | Builds `build.noindex/PasteTrove.app` |
 | `scripts/release.sh` | Universal build, `dist/PasteTrove-<version>.zip` and `dist/PasteTrove.dmg`, and the zip's sha256 in the cask |
 | `scripts/make-icon.sh` | Redraws the app icon from `BrandMark.swift` |
 

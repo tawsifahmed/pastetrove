@@ -12,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private let statusMenu = NSMenu()
     private var askedAccessibility = false
+    /// A `pastetrove://` link that launched the app arrives before setup is done; it waits here.
+    private var launchURLs: [URL] = []
     private let openItem = NSMenuItem(title: "Open PasteTrove", action: #selector(openPanel), keyEquivalent: "")
     private let pauseItem = NSMenuItem(title: "Pause Recording", action: #selector(togglePause), keyEquivalent: "")
 
@@ -49,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         Settings.firstRun()
         if !AXIsProcessTrusted() { requestAccessibility() }
         if !Settings.clipboardAllowed { explainClipboardAccess() }
+        if !launchURLs.isEmpty { application(NSApp, open: launchURLs) }
     }
 
     /// A damaged or locked history file must not make a login item silently disappear.
@@ -88,10 +91,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    /// Opening PasteTrove while it runs (from Spotlight, Finder or Launchpad) shows the panel.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        panel?.show(at: anchor(Settings.placement))
+        return false
+    }
+
     /// `pastetrove://open` opens the panel, for Shortcuts, Raycast or scripts.
     /// Optional query items: `layout=plain|rich|grid`, `preview=1`.
     /// `pastetrove://settings` and `pastetrove://about` open those windows.
     func application(_ application: NSApplication, open urls: [URL]) {
+        guard panel != nil else {
+            launchURLs = urls
+            return
+        }
         guard let url = urls.first else { return }
         switch url.host {
         case "settings": return openSettings()
