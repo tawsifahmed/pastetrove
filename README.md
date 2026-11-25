@@ -118,7 +118,7 @@ PasteTrove recognizes **code** (terminal commands, source code, JSON, SQL), **Ma
 
 Click an item to select it, double-click to paste. Right-click an item for Paste, Paste as Plain Text, Copy, Preview, Pin, Open Link, Show in Finder and Delete.
 
-The gear menu has About, Settings, Pause Recording, Check for Updates, Clear History and Quit. Right-click the menu bar icon for the same menu.
+The gear menu has About, Settings, Pause Recording, Send Feedback, Check for Updates, Clear History and Quit. Right-click the menu bar icon for the same menu.
 
 ### Settings
 
@@ -136,6 +136,14 @@ The gear menu has About, Settings, Pause Recording, Check for Updates, Clear His
 ### Open from other tools
 
 `pastetrove://open` opens the panel, for Shortcuts, Raycast or scripts. Add `?layout=plain`, `rich` or `grid` to pick a layout. `pastetrove://settings` and `pastetrove://about` open those windows.
+
+## Feedback
+
+Found a problem or have an idea? Choose **Send Feedback…** in the gear menu, or go straight to GitHub:
+
+- [Report a bug or suggest a feature](https://github.com/tawsifahmed/pastetrove/issues/new/choose) (needs a free GitHub account)
+- [See the roadmap](https://github.com/tawsifahmed/pastetrove/projects): what's planned, in progress and shipped
+- Security problems: [report them privately](https://github.com/tawsifahmed/pastetrove/security/advisories/new), not in a public issue
 
 ## Privacy
 

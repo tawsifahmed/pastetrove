@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in PasteTrove doesn't work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please don't paste anything private from your clipboard history.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Describe what you saw. A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the panel with the shortcut
+        2. Press ⏎ on an image
+        3. ...
+    validations:
+      required: false
+  - type: textarea
+    id: version
+    attributes:
+      label: PasteTrove and macOS version
+      description: In PasteTrove, open About and click "Copy version info", then paste it here.
+      placeholder: |
+        PasteTrove 0.1.4 (5)
+        macOS Version 26.1 (Build 25B78), Apple silicon
+    validations:
+      required: true
