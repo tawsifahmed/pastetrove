@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 - 2026-11-25
+
+### Features
+- **paste:** ⏎, ⇧⏎, ⌘⏎, double-click and right-click Paste flash "Copied" on the item before the panel closes, like ⌘1–⌘0, so you see which item was used.
+- **lists:** A thin outline fades in under the pointer in all three layouts.
+
 ## 0.1.3 - 2026-11-25
 
 ### Features
