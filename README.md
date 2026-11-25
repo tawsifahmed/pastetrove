@@ -128,7 +128,7 @@ The gear menu has About, Settings, Pause Recording, Check for Updates, Clear His
 
 - **Open PasteTrove**: click the button, then press the new shortcut. It needs ⌘, ⌥ or ⌃. Press esc to cancel.
 - **When appears**: where the shortcut opens the panel: near the menu bar icon (default), near the cursor, or in the center of the screen.
-- **Layout**, **Launch at login**, **Play sound when copying**
+- **Layout** (default Grid View), **Launch at login**, **Play sound when copying**
 - **Clipboard access**: shows whether "Always Allow" is set, with a button to fix it.
 - **Keep items** (500 to 10,000, default 2,000) and **Keep images** (50 to 500, default 200). The oldest unpinned items are removed first. Lowering a limit asks before deleting anything.
 - **Clear History** removes all unpinned items.

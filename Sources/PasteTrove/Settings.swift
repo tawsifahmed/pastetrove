@@ -41,7 +41,7 @@ enum Settings {
     }
 
     static var layout: Layout {
-        get { defaults.string(forKey: "layout").flatMap(Layout.init(rawValue:)) ?? .rich }
+        get { defaults.string(forKey: "layout").flatMap(Layout.init(rawValue:)) ?? .grid }
         set { defaults.set(newValue.rawValue, forKey: "layout") }
     }
 
