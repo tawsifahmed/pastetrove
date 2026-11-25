@@ -6,7 +6,7 @@ enum PickMode {
 
 /// Actions from the panel's gear menu (and ⌘,), carried out by the app.
 enum PanelCommand {
-    case about, settings, togglePause, updates, clearHistory, quit
+    case about, settings, togglePause, feedback, updates, clearHistory, quit
 }
 
 enum Layout: String, CaseIterable {

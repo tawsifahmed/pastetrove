@@ -331,6 +331,7 @@ struct PanelView: View {
                 .keyboardShortcut(",", modifiers: .command)
             Divider()
             Button(model.paused ? "Resume Recording" : "Pause Recording") { command(.togglePause) }
+            Button("Send Feedback…") { command(.feedback) }
             Button(model.updateVersion.map { "Update to \($0)…" } ?? "Check for Updates…") { command(.updates) }
             Divider()
             Button("Clear History…") { command(.clearHistory) }

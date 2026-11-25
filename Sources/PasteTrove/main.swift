@@ -226,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ","),
             .separator(),
             pauseItem,
+            NSMenuItem(title: "Send Feedback…", action: #selector(sendFeedback), keyEquivalent: ""),
             updatesItem,
             NSMenuItem(title: "Clear History…", action: #selector(clearHistory), keyEquivalent: ""),
             .separator(),
@@ -271,6 +272,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .about: openAbout()
         case .settings: openSettings()
         case .togglePause: togglePause()
+        case .feedback: sendFeedback()
         case .updates: checkForUpdates()
         case .clearHistory: clearHistory()
         case .quit: NSApp.terminate(nil)
@@ -283,6 +285,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openSettings() {
         settings.show()
+    }
+
+    /// Feedback lives on GitHub: new issues for problems and ideas, the roadmap board for what's planned.
+    @objc private func sendFeedback() {
+        NSApp.activate()
+        let alert = NSAlert()
+        alert.messageText = "Send Feedback"
+        alert.informativeText = "Report a problem or suggest an idea on GitHub, or see what's planned and in progress."
+        alert.addButton(withTitle: "Report or Suggest")
+        alert.addButton(withTitle: "See Roadmap")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: NSWorkspace.shared.open(AboutController.newIssueURL)
+        case .alertSecondButtonReturn: NSWorkspace.shared.open(AboutController.roadmapURL)
+        default: break
+        }
     }
 
     /// Offers the update that is already known, or asks GitHub now.
