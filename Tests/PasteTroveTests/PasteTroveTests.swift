@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Testing
 @testable import PasteTrove
 
@@ -47,8 +47,7 @@ func age(seconds: Double, label: String) {
 }
 
 @Test func reopensWhereYouLeftOffUntilANewCopy() throws {
-    setenv("PASTETROVE_DATA_DIR", NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)", 1)
-    let store = try Store()
+    let store = try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)"))
     func copy(_ text: String) {
         store.save(Capture(kind: .text, text: text, key: Data(text.utf8), reps: [("public.utf8-plain-text", Data(text.utf8))]),
                    app: nil, limit: 100, imageLimit: 10)
@@ -77,6 +76,32 @@ func age(seconds: Double, label: String) {
     model.close()
     model.open()
     #expect(model.query.isEmpty && model.shown.count == 11 && model.toTop == 3)
+}
+
+@Test func searchFindsImagesByTheirWords() throws {
+    let store = try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)"))
+    let png = Data("not really a png".utf8)
+    store.save(Capture(kind: .image, text: "Image 10×10", key: png, reps: [("public.png", png)]), app: nil, limit: 100, imageLimit: 10)
+    let id = try #require(store.unreadImages().first)
+    let model = Model(store: store)
+    model.open()
+    model.query = "invoice"
+    #expect(model.shown.isEmpty)
+
+    store.setWords(id, "INVOICE #4021\nTotal $13.50")
+    model.wordsRead(id)
+    #expect(model.shown.map(\.id) == [id] && store.unreadImages().isEmpty)
+}
+
+@Test func readsTheWordsInAnImage() throws {
+    let image = NSImage(size: NSSize(width: 600, height: 160), flipped: false) { rect in
+        NSColor.white.setFill()
+        rect.fill()
+        ("INVOICE 4021 paid" as NSString).draw(at: NSPoint(x: 30, y: 60), withAttributes: [.font: NSFont.systemFont(ofSize: 40)])
+        return true
+    }
+    let png = try #require(NSBitmapImageRep(data: image.tiffRepresentation!)?.representation(using: .png, properties: [:]))
+    #expect(ImageText.read(png)?.contains("INVOICE 4021") == true)
 }
 
 @Test func versionOrder() {

@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var store: Store!
     private var model: Model!
     private var monitor: Monitor!
+    private var imageText: ImageText!
     private var panel: PanelController!
     private var hotkey: Hotkey!
     private var settings: SettingsController!
@@ -27,11 +28,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         model = Model(store: store)
         monitor = Monitor(store: store)
+        imageText = ImageText(store: store)
+        imageText.onChange = { [weak self] id, left in
+            self?.model.reading = left
+            if let id { self?.model.wordsRead(id) }
+        }
         monitor.onCapture = { [weak self] in
             self?.model.reload()
             self?.copyFeedback()
+            self?.imageText.readNew()
         }
         monitor.start()
+        imageText.readNew()
 
         panel = PanelController(model: model)
         panel.onPick = { [weak self] item, mode in self?.use(item, mode) }

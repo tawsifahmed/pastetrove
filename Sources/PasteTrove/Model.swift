@@ -111,6 +111,15 @@ final class Model: ObservableObject {
     var columns: Int { layout == .grid ? gridColumns : 1 }
 
     /// Keeps the same item selected when a new copy arrives while the panel is open.
+    /// Images still waiting for their words; while searching, results can still grow.
+    @Published var reading = 0
+
+    /// An image's words were just read: search it again, now with them.
+    func wordsRead(_ id: Int64) {
+        searchText[id] = nil
+        if query.isEmpty { stale = true } else { reload() }
+    }
+
     func reload() {
         guard isOpen else {
             stale = true
@@ -199,7 +208,7 @@ final class Model: ObservableObject {
 
     private func searchKey(_ item: Item) -> String {
         if let hit = searchText[item.id] { return hit }
-        let key = Self.fold(item.text)
+        let key = Self.fold(item.words.isEmpty ? item.text : item.text + "\n" + item.words)
         searchText[item.id] = key
         return key
     }
