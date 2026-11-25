@@ -1,6 +1,6 @@
 cask "pastetrove" do
-  version "0.1.4"
-  sha256 "c4d699427e4067a32920d722f7030b4d1fa61c7e8a9e68fd560cdc98266dd8ee"
+  version "0.1.5"
+  sha256 "9e47271a7ad40a5f30a2daaea196aad9c5933df06c7960d343c517ba13a0896e"
 
   url "https://github.com/tawsifahmed/pastetrove/releases/download/v#{version}/PasteTrove-#{version}.zip"
   name "PasteTrove"

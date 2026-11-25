@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.5 - 2026-11-25
+
+### Features
+- **feedback:** Send Feedback… in the gear menu and the menu bar menu. Report a problem or suggest an idea on GitHub, or see the public roadmap. Issue forms ask for the details needed, and security problems go to a private report.
+- **updates:** When a new version is ready, the panel's footer shows an Update button in place of the item count. Skip This Version hides every update sign until the next version.
+- **layout:** New installs open in Grid View.
+
 ## 0.1.4 - 2026-11-25
 
 ### Features
