@@ -7,7 +7,7 @@ final class Monitor {
     var onCapture: (() -> Void)?
 
     private let store: Store
-    private let pasteboard = NSPasteboard.general
+    private let pasteboard: NSPasteboard
     private var lastChange: Int
     /// Kept alive while its image is on the clipboard.
     private var tiffProvider: TIFFProvider?
@@ -27,8 +27,9 @@ final class Monitor {
         "net.antelle.keeweb",
     ]
 
-    init(store: Store) {
+    init(store: Store, pasteboard: NSPasteboard = .general) {
         self.store = store
+        self.pasteboard = pasteboard
         lastChange = pasteboard.changeCount
     }
 
@@ -52,9 +53,12 @@ final class Monitor {
         onCapture?()
     }
 
-    private func read(_ types: [String]) -> Capture? {
+    func read(_ types: [String]) -> Capture? {
         if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
            !urls.isEmpty {
+            // A file in another app's private folder is its temporary copy (Telegram does this for photos):
+            // it gets deleted later and macOS blocks reading it, so keep the picture itself when there is one.
+            if urls.contains(where: { Cache.isOtherAppData($0.path) }), let image = readImage() { return image }
             let list = Data(urls.map(\.absoluteString).joined(separator: "\n").utf8)
             return Capture(kind: .file, text: urls.map(\.path).joined(separator: "\n"), key: list, reps: [(Self.fileList, list)])
         }
@@ -69,6 +73,10 @@ final class Monitor {
             }
             return Capture(kind: Self.isLink(string) ? .link : .text, text: string, key: Data(string.utf8), reps: reps)
         }
+        return readImage()
+    }
+
+    private func readImage() -> Capture? {
         // TIFF is uncompressed, so allow it to be larger, but check before converting it.
         if let png = pasteboard.data(forType: .png)
             ?? pasteboard.data(forType: .tiff).flatMap({ $0.count < Self.maxSize * 4 ? Self.png($0) : nil }),
