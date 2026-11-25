@@ -133,16 +133,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if items.count == 1 { return use(items[0], mode) }
         guard AXIsProcessTrusted() else { return requestAccessibility() }
         let groups = Model.pasteGroups(items)
+        let target = NSWorkspace.shared.frontmostApplication?.processIdentifier
+        var written = 0
+        // The list holds only the first 2,000 characters; paste the full text.
+        func fullText(_ item: Item) -> String {
+            store.data(item.id, type: NSPasteboard.PasteboardType.string.rawValue).map { String(decoding: $0, as: UTF8.self) } ?? item.text
+        }
         func paste(_ index: Int) {
-            guard groups.indices.contains(index) else { return }
+            // Stop if another app came to the front or copied meanwhile, so the rest never lands somewhere else.
+            guard groups.indices.contains(index),
+                  NSWorkspace.shared.frontmostApplication?.processIdentifier == target,
+                  index == 0 || NSPasteboard.general.changeCount == written
+            else { return }
             let group = groups[index]
             // Text after earlier text (an image between them) starts on a new line.
             let afterText = groups[..<index].contains { $0[0].isText }
             if group[0].isText, group.count > 1 || afterText {
-                monitor.write(text: (afterText ? "\n" : "") + group.map(\.text).joined(separator: "\n"))
+                monitor.write(text: (afterText ? "\n" : "") + group.map(fullText).joined(separator: "\n"))
             } else {
                 monitor.write(group[0], plain: mode == .plain)
             }
+            written = NSPasteboard.general.changeCount
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { Self.pressCommandV() }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { paste(index + 1) }
         }
