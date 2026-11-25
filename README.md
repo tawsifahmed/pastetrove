@@ -140,7 +140,7 @@ The gear menu has About, Settings, Pause Recording, Send Feedback, Check for Upd
 Found a problem or have an idea? Choose **Send Feedback…** in the gear menu, or go straight to GitHub:
 
 - [Report a bug or suggest a feature](https://github.com/tawsifahmed/pastetrove/issues/new/choose) (needs a free GitHub account)
-- [See the roadmap](https://github.com/users/tawsifahmed/projects/2): what's planned, in progress and shipped
+- [See the roadmap](https://github.com/tawsifahmed/pastetrove/projects): what's planned, in progress and shipped
 - Security problems: [report them privately](https://github.com/tawsifahmed/pastetrove/security/advisories/new), not in a public issue
 
 ## Privacy

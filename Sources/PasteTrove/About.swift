@@ -6,7 +6,7 @@ final class AboutController {
     static let repositoryURL = URL(string: "https://github.com/tawsifahmed/pastetrove")!
     /// Lets people pick a bug report, a feature request or a private security report.
     static let newIssueURL = URL(string: "https://github.com/tawsifahmed/pastetrove/issues/new/choose")!
-    static let roadmapURL = URL(string: "https://github.com/users/tawsifahmed/projects/2")!
+    static let roadmapURL = URL(string: "https://github.com/tawsifahmed/pastetrove/projects")!
 
     private var window: NSWindow?
 
