@@ -22,6 +22,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let preview: PreviewController
     private var keyMonitor: Any?
     private var hiddenAt = Date.distantPast
+    /// A flash is showing before a paste; a second ⏎ meanwhile is ignored.
+    private var picking = false
 
     private static let digits: [Int: Int] = [
         kVK_ANSI_1: 1, kVK_ANSI_2: 2, kVK_ANSI_3: 3, kVK_ANSI_4: 4, kVK_ANSI_5: 5,
@@ -44,7 +46,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.delegate = self
         panel.float(PanelView(
             model: model,
-            pick: { [weak self] item, mode in self?.pick(item, mode) },
+            pick: { [weak self] item, mode in self?.flashThenPick(item, mode) },
             copy: { [weak self] item in self?.copy(item) },
             command: { [weak self] in self?.run($0) },
             togglePreview: { [weak self] in self?.togglePreview() }
@@ -130,6 +132,20 @@ final class PanelController: NSObject, NSWindowDelegate {
         onPick?(item, mode)
     }
 
+    /// Flashes "Copied" on the item, then closes and pastes, so you see which item it was.
+    /// If the panel closed meanwhile (you switched apps), it only copies, so the paste never lands elsewhere.
+    private func flashThenPick(_ item: Item, _ mode: PickMode) {
+        guard !picking else { return }
+        picking = true
+        model.select(item)
+        model.flash(item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self else { return }
+            picking = false
+            if panel.isVisible { pick(item, mode) } else { onCopy?(item) }
+        }
+    }
+
     /// Copies without closing the panel, like ⌘C in a list.
     private func copy(_ item: Item) {
         onCopy?(item)
@@ -192,7 +208,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             togglePreview()
             return true
         case kVK_Return, kVK_ANSI_KeypadEnter:
-            if let item = model.current { pick(item, command ? .copy : shift ? .plain : .paste) }
+            if let item = model.current { flashThenPick(item, command ? .copy : shift ? .plain : .paste) }
             return true
         case kVK_Delete where command:
             model.delete()
@@ -224,15 +240,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             guard let number = Self.digits[key] else { return false }
             let index = model.firstVisible + number - 1
             guard model.shown.indices.contains(index) else { return true }
-            // Flash first, so you see which item it was, then close and paste: one clipboard write.
-            let item = model.shown[index]
-            model.select(item)
-            model.flash(item)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                guard let self else { return }
-                // If the panel closed meanwhile (you switched apps), only copy, so the paste never lands elsewhere.
-                if panel.isVisible { pick(item, shift ? .plain : .paste) } else { onCopy?(item) }
-            }
+            flashThenPick(model.shown[index], shift ? .plain : .paste)
         }
         return true
     }
@@ -398,7 +406,6 @@ struct PanelView: View {
                     if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { pick(item, .paste) } else { model.selected = index }
                 }
                 .contextMenu { menu(for: item) }
-                .onHover { inside in (inside ? NSCursor.pointingHand : NSCursor.arrow).set() }
                 .background(GeometryReader { geometry in
                     // Only rendered cells report; the smallest index whose top is in view wins.
                     Color.clear.preference(
@@ -449,6 +456,7 @@ struct PanelView: View {
         .overlay {
             if flashing { CopiedFlash(cornerRadius: model.layout.cornerRadius) }
         }
+        .modifier(HoverHighlight(cornerRadius: model.layout.cornerRadius, enabled: !selected && !flashing))
         .scaleEffect(flashing ? 0.97 : 1)
         // While ⌘ is held, items without a number fade back so 1–9 stand out.
         .opacity(model.commandHeld && shortcut == nil ? 0.4 : 1)
