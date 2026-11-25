@@ -43,6 +43,18 @@ extension TextStyle {
     var symbol: String { self == .code ? "chevron.left.forwardslash.chevron.right" : "number" }
 }
 
+/// Tap order while "Paste several at once" collects items; `Badge` shows it next to the ⌘ key.
+struct QueueOrderKey: EnvironmentKey {
+    static let defaultValue: Int? = nil
+}
+
+extension EnvironmentValues {
+    var queueOrder: Int? {
+        get { self[QueueOrderKey.self] }
+        set { self[QueueOrderKey.self] = newValue }
+    }
+}
+
 /// Green outline with a "Copied" label, shown briefly when an item is copied or pasted.
 struct CopiedFlash: View {
     let cornerRadius: CGFloat
@@ -95,10 +107,21 @@ struct HoverRing: View {
 struct Badge: View {
     let item: Item
     let shortcut: Int?
+    @Environment(\.queueOrder) private var order
 
     var body: some View {
         HStack(spacing: 4) {
             if item.pinned { Image(systemName: "pin.fill").foregroundStyle(.orange) }
+            if let order {
+                Text("\(order)")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .frame(width: 18, height: 18)
+                    .background(Color.accentColor, in: Circle())
+                    // The ring keeps it visible on a selected row, which is accent-colored too.
+                    .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1.5))
+                    .transition(.scale(scale: 0.6).combined(with: .opacity))
+            }
             if let shortcut {
                 Text("⌘\(shortcut % 10)")
                     .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -309,5 +332,6 @@ func counted(_ count: Int, _ noun: String) -> String {
 
 extension Item {
     var paths: [String] { text.split(separator: "\n").map(String.init) }
+    var isText: Bool { kind == .text || kind == .link }
     var host: String? { URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines))?.host }
 }

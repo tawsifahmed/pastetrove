@@ -35,6 +35,12 @@ enum Settings {
         }
     }
 
+    /// Hold ⌘, tap numbers, let go to paste them all. Off: ⌘ + number pastes at once.
+    static var multiPaste: Bool {
+        get { defaults.bool(forKey: "multiPaste") }
+        set { defaults.set(newValue, forKey: "multiPaste") }
+    }
+
     static var playSound: Bool {
         get { defaults.object(forKey: "playSound") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "playSound") }
@@ -184,6 +190,9 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
     @Published var playSound = Settings.playSound {
         didSet { Settings.playSound = playSound }
     }
+    @Published var multiPaste = Settings.multiPaste {
+        didSet { Settings.multiPaste = multiPaste }
+    }
     @Published var clipboardAllowed = Settings.clipboardAllowed
     @Published var autoUpdate = Settings.autoUpdate {
         didSet { Settings.autoUpdate = autoUpdate }
@@ -314,6 +323,10 @@ struct SettingsView: View {
                 }
                 Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 Toggle("Play sound when copying", isOn: $model.playSound)
+                Toggle(isOn: $model.multiPaste) {
+                    Text("Paste several at once")
+                    Text("Hold ⌘, tap numbers or click items, then let go of ⌘ to paste them in order.")
+                }
                 Toggle(isOn: $model.autoUpdate) {
                     Text("Check for updates automatically")
                     Text("Once a day, from GitHub. Nothing from your clipboard is sent.")

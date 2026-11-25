@@ -14,6 +14,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     var onPick: ((Item, PickMode) -> Void)?
+    var onPickMany: (([Item], PickMode) -> Void)?
     var onCopy: ((Item) -> Void)?
     var onCommand: ((PanelCommand) -> Void)?
 
@@ -92,6 +93,13 @@ final class PanelController: NSObject, NSWindowDelegate {
                 guard let self else { return event }
                 if event.type == .flagsChanged {
                     model.commandHeld = event.modifierFlags.contains(.command)
+                    // Letting go of ⌘ pastes what was tapped.
+                    if !model.commandHeld, !model.queue.isEmpty {
+                        let items = model.queue
+                        hide()
+                        // ⇧ is ignored: it is often still held from the ⇧⌘V shortcut.
+                        onPickMany?(items, .paste)
+                    }
                     return event
                 }
                 return handle(event) ? nil : event
@@ -181,7 +189,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
         switch key {
         case kVK_Escape:
-            if model.query.isEmpty { hide() } else { model.query = "" }
+            if !model.queue.isEmpty { model.queue = [] } else if model.query.isEmpty { hide() } else { model.query = "" }
             return true
         case kVK_DownArrow:
             model.move(command ? Int(Int32.max) : model.columns)
@@ -240,7 +248,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             guard let number = Self.digits[key] else { return false }
             let index = model.firstVisible + number - 1
             guard model.shown.indices.contains(index) else { return true }
-            flashThenPick(model.shown[index], shift ? .plain : .paste)
+            if Settings.multiPaste { model.toggleQueued(model.shown[index]) } else { flashThenPick(model.shown[index], shift ? .plain : .paste) }
         }
         return true
     }
@@ -406,7 +414,13 @@ struct PanelView: View {
                 .id(item.id)
                 // One gesture, so a single click selects at once instead of waiting out the double-click delay.
                 .onTapGesture {
-                    if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { pick(item, .paste) } else { model.selected = index }
+                    if Settings.multiPaste, NSEvent.modifierFlags.contains(.command) {
+                        model.toggleQueued(item)
+                    } else if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+                        pick(item, .paste)
+                    } else {
+                        model.selected = index
+                    }
                 }
                 .contextMenu { menu(for: item) }
                 .background(GeometryReader { geometry in
@@ -456,6 +470,7 @@ struct PanelView: View {
         // ⌘1…⌘9 and ⌘0: the first ten visible items.
         let shortcut = model.commandHeld && (0..<10).contains(offset) ? offset + 1 : nil
         let flashing = model.flashID == item.id
+        let order = model.queue.firstIndex { $0.id == item.id }.map { $0 + 1 }
         Group {
             switch model.layout {
             case .plain: PlainRow(item: item, shortcut: shortcut, selected: selected, store: model.store)
@@ -466,11 +481,21 @@ struct PanelView: View {
         .overlay {
             if flashing { CopiedFlash(cornerRadius: model.layout.cornerRadius) }
         }
+        // A tint, not an outline, so a queued item never looks like the selected one.
+        .overlay {
+            if order != nil {
+                RoundedRectangle(cornerRadius: model.layout.cornerRadius, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.16))
+                    .allowsHitTesting(false)
+            }
+        }
+        .environment(\.queueOrder, order)
         .modifier(HoverHighlight(cornerRadius: model.layout.cornerRadius, enabled: !selected && !flashing))
         .scaleEffect(flashing ? 0.97 : 1)
         // While ⌘ is held, items without a number fade back so 1–9 stand out.
         .opacity(model.commandHeld && shortcut == nil ? 0.4 : 1)
         .animation(.spring(response: 0.28, dampingFraction: 0.6), value: flashing)
+        .animation(.spring(response: 0.25, dampingFraction: 0.7), value: order)
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: model.commandHeld)
     }
 
@@ -491,7 +516,9 @@ struct PanelView: View {
             .help("Layout (⌘L)")
             .frame(width: 60, alignment: .leading)
             Spacer()
-            if let version = model.updateVersion {
+            if !model.queue.isEmpty {
+                Text("\(model.queue.count) selected · let go of ⌘ to paste").foregroundStyle(.tint)
+            } else if let version = model.updateVersion {
                 Button("Update to \(version)", systemImage: "arrow.up") { command(.updates) }
                     .buttonStyle(.bordered)
                     .buttonBorderShape(.capsule)
@@ -565,3 +592,4 @@ struct VisualEffect: NSViewRepresentable {
 
     func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
+

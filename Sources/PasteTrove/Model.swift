@@ -90,6 +90,8 @@ final class Model: ObservableObject {
     @Published var gridColumns = 2
     @Published var commandHeld = false
     @Published var firstVisible = 0
+    /// Items tapped with ⌘ + number while "Paste several at once" is on, in tap order.
+    @Published var queue: [Item] = []
     /// The item just copied with ⌘C, highlighted for a moment.
     @Published private(set) var flashID: Int64?
     private var all: [Item] = []
@@ -147,6 +149,21 @@ final class Model: ObservableObject {
 
     func close() {
         isOpen = false
+        queue = []
+    }
+
+    /// Adds the item, or takes it out if it is already queued.
+    func toggleQueued(_ item: Item) {
+        if let index = queue.firstIndex(where: { $0.id == item.id }) { queue.remove(at: index) } else { queue.append(item) }
+    }
+
+    /// One paste per group: text next to text joins into one, so a chat box never gets a ⏎ between them.
+    static func pasteGroups(_ items: [Item]) -> [[Item]] {
+        var groups: [[Item]] = []
+        for item in items {
+            if item.isText, groups.last?.last?.isText == true { groups[groups.count - 1].append(item) } else { groups.append([item]) }
+        }
+        return groups
     }
 
     private func load() {
@@ -186,6 +203,7 @@ final class Model: ObservableObject {
     func delete(_ item: Item? = nil) {
         guard let item = item ?? current else { return }
         store.delete(item.id)
+        queue.removeAll { $0.id == item.id }
         reload()
     }
 
