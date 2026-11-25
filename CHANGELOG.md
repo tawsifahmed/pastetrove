@@ -2,6 +2,10 @@
 
 ## 0.1.3 - 2026-11-25
 
+### Features
+- **updates:** PasteTrove updates itself. Once a day it checks GitHub for a new version and asks before installing. Install & Relaunch downloads it, checks the checksum and that it is signed by the PasteTrove developer, then swaps it in and relaunches. Turn the daily check off in Settings, or use Check Now there.
+- **size:** The app is about half as big on disk (3.3 MB to 1.7 MB) and smaller to download (under 1 MB). Search speed is unchanged.
+
 ### Fixes
 - **open:** Opening PasteTrove while it runs (from Spotlight, Finder or Launchpad) shows the panel. Before, nothing happened.
 - **links:** A `pastetrove://` link that starts PasteTrove no longer crashes it. The link opens the panel or Settings once the app is ready.
