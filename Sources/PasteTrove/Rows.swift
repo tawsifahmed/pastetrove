@@ -43,7 +43,7 @@ extension TextStyle {
     var symbol: String { self == .code ? "chevron.left.forwardslash.chevron.right" : "number" }
 }
 
-/// Green outline with a "Copied" label, shown briefly after ⌘C.
+/// Green outline with a "Copied" label, shown briefly when an item is copied or pasted.
 struct CopiedFlash: View {
     let cornerRadius: CGFloat
 
@@ -59,6 +59,35 @@ struct CopiedFlash: View {
                     .background(.regularMaterial, in: Capsule())
             }
             .transition(.opacity)
+    }
+}
+
+/// A thin accent ring that fades in under the pointer, with the pointing-hand cursor.
+struct HoverHighlight: ViewModifier {
+    let cornerRadius: CGFloat
+    /// Off for the selected or flashing item, which already has its own highlight.
+    let enabled: Bool
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay { HoverRing(cornerRadius: cornerRadius).opacity(enabled && hovering ? 1 : 0) }
+            .animation(.easeOut(duration: 0.15), value: hovering)
+            .onHover { inside in
+                hovering = inside
+                (inside ? NSCursor.pointingHand : NSCursor.arrow).set()
+            }
+    }
+}
+
+struct HoverRing: View {
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape.fill(Color.accentColor.opacity(0.06))
+            .overlay(shape.strokeBorder(Color.accentColor.opacity(0.5), lineWidth: 1))
+            .allowsHitTesting(false)
     }
 }
 
