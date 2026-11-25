@@ -24,7 +24,7 @@
 
 ---
 
-- **Native and light.** Swift and AppKit/SwiftUI, no dependencies, about 1 MB. Lives in the menu bar and uses almost no CPU when idle.
+- **Native and light.** Swift and AppKit/SwiftUI, no dependencies, under 1 MB to download. Lives in the menu bar and uses almost no CPU when idle.
 - **Private.** History is stored only on your Mac. No account and no sync. The only network request is a once-a-day check on GitHub for a new version, which you can turn off in Settings. Nothing from your clipboard is ever sent.
 - **Keeps everything.** Text, rich text, code, Markdown, colors, links, images and files. History stays after a restart.
 - **Fast to use.** One shortcut, type to search, ⏎ to paste into the app you were using.
