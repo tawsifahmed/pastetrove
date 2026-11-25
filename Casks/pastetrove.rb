@@ -9,6 +9,9 @@ cask "pastetrove" do
 
   depends_on macos: :sonoma
 
+  # PasteTrove updates itself; Homebrew leaves the installed copy to it.
+  auto_updates true
+
   app "PasteTrove.app"
 
   # PasteTrove is not notarized by Apple, so Gatekeeper would refuse the

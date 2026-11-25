@@ -4,7 +4,6 @@ import SwiftUI
 /// The About window: icon, version, build date, and a button that copies the version details.
 final class AboutController {
     static let repositoryURL = URL(string: "https://github.com/tawsifahmed/pastetrove")!
-    static let releasesURL = URL(string: "https://github.com/tawsifahmed/pastetrove/releases")!
 
     private var window: NSWindow?
 
