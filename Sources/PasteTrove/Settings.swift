@@ -50,6 +50,23 @@ enum Settings {
         set { defaults.set(newValue.rawValue, forKey: "placement") }
     }
 
+    /// Checks GitHub once a day for a newer version.
+    static var autoUpdate: Bool {
+        get { defaults.object(forKey: "autoUpdate") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "autoUpdate") }
+    }
+
+    /// A version the person chose to skip; automatic checks stay quiet about it.
+    static var skippedVersion: String? {
+        get { defaults.string(forKey: "skippedVersion") }
+        set { defaults.set(newValue, forKey: "skippedVersion") }
+    }
+
+    static var lastUpdateCheck: Double {
+        get { defaults.double(forKey: "lastUpdateCheck") }
+        set { defaults.set(newValue, forKey: "lastUpdateCheck") }
+    }
+
     /// macOS 15.4+ asks before every programmatic clipboard read unless the user picks "Always Allow".
     static var clipboardAllowed: Bool {
         if #available(macOS 15.4, *) {
@@ -168,9 +185,13 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
         didSet { Settings.playSound = playSound }
     }
     @Published var clipboardAllowed = Settings.clipboardAllowed
+    @Published var autoUpdate = Settings.autoUpdate {
+        didSet { Settings.autoUpdate = autoUpdate }
+    }
 
     var onClear: (() -> Void)?
     var onLimits: (() -> Void)?
+    var onCheckUpdates: (() -> Void)?
 
     private let hotkey: Hotkey
     private let panelModel: Model
@@ -185,6 +206,7 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
     func show() {
         launchAtLogin = SMAppService.mainApp.status == .enabled
         clipboardAllowed = Settings.clipboardAllowed
+        autoUpdate = Settings.autoUpdate
         if window == nil {
             let view = SettingsView(model: self, panel: panelModel)
             let window = NSWindow(contentViewController: NSHostingController(rootView: view))
@@ -292,6 +314,13 @@ struct SettingsView: View {
                 }
                 Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 Toggle("Play sound when copying", isOn: $model.playSound)
+                Toggle(isOn: $model.autoUpdate) {
+                    Text("Check for updates automatically")
+                    Text("Once a day, from GitHub. Nothing from your clipboard is sent.")
+                }
+                LabeledContent("Version \(Updater.current)") {
+                    Button("Check Now") { model.onCheckUpdates?() }
+                }
             }
             Section("History") {
                 Picker("Keep items", selection: Binding(get: { model.historyLimit }, set: { model.setLimit($0, images: false) })) {
