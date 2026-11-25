@@ -8,10 +8,10 @@ cd "$(dirname "$0")/.."
 VERSION=$(plutil -extract CFBundleShortVersionString raw Info.plist)
 scripts/build.sh universal
 rm -rf dist && mkdir -p dist
-ditto -c -k --keepParent build/PasteTrove.app "dist/PasteTrove-$VERSION.zip"
+ditto -c -k --keepParent build.noindex/PasteTrove.app "dist/PasteTrove-$VERSION.zip"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
-cp -R build/PasteTrove.app "$STAGE/"
+cp -R build.noindex/PasteTrove.app "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "PasteTrove $VERSION" -srcfolder "$STAGE" -ov -format UDZO dist/PasteTrove.dmg >/dev/null
 SHA=$(shasum -a 256 "dist/PasteTrove-$VERSION.zip" | cut -d' ' -f1)
