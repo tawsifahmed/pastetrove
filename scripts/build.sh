@@ -12,6 +12,11 @@ BIN="$(swift build -c release "${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}" --show-bin-p
 APP=build.noindex/PasteTrove.app
 rm -rf "$APP" && mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/PasteTrove"
+# Ship without the symbol table (about 60% of the binary). The symbols go to a dSYM next to the app,
+# which is not shipped and turns addresses in crash reports back into function names.
+rm -rf build.noindex/PasteTrove.dSYM
+dsymutil "$BIN" -o build.noindex/PasteTrove.dSYM
+strip -x "$APP/Contents/MacOS/PasteTrove"
 cp Info.plist "$APP/Contents/"
 cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 # Sign with the local certificate when it exists (stable permissions), otherwise ad hoc.
