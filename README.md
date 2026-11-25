@@ -107,7 +107,7 @@ PasteTrove recognizes **code** (terminal commands, source code, JSON, SQL), **Ma
 | ⇧⏎ | Paste as plain text |
 | ⌘⏎ | Copy and close, do not paste |
 | ⌘C | Copy and keep the panel open |
-| Hold ⌘, then 1 … 9 or 0 | Paste one of the first ten visible items (0 is the tenth). Holding ⌘ shows glowing numbers on them. |
+| Hold ⌘, then 1 … 9 or 0 | Paste one of the first ten visible items (0 is the tenth). Holding ⌘ shows glowing numbers on them. With **Paste several at once** on, tap several, then let go of ⌘. |
 | Space, ⌘Y | Preview |
 | ⇥ / ⇧⇥ | Next / previous filter |
 | ⌘P | Pin or unpin. Pinned items stay at the top and are never removed. |
@@ -129,6 +129,7 @@ The gear menu has About, Settings, Pause Recording, Send Feedback, Check for Upd
 - **Open PasteTrove**: click the button, then press the new shortcut. It needs ⌘, ⌥ or ⌃. Press esc to cancel.
 - **When appears**: where the shortcut opens the panel: near the menu bar icon (default), near the cursor, or in the center of the screen.
 - **Layout** (default Grid View), **Launch at login**, **Play sound when copying**
+- **Paste several at once** (off by default): hold ⌘, tap numbers or ⌘-click items, then let go of ⌘. They paste in the order you picked them; text next to text joins with line breaks. Tap an item again to take it out, esc to clear.
 - **Clipboard access**: shows whether "Always Allow" is set, with a button to fix it.
 - **Keep items** (500 to 10,000, default 2,000) and **Keep images** (50 to 500, default 200). The oldest unpinned items are removed first. Lowering a limit asks before deleting anything.
 - **Clear History** removes all unpinned items.

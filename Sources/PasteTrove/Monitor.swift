@@ -115,6 +115,13 @@ final class Monitor {
         lastChange = pasteboard.changeCount
     }
 
+    /// Puts plain text on the clipboard without adding it to the history.
+    func write(text: String) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        lastChange = pasteboard.changeCount
+    }
+
     /// Small JPEG saved next to each image, so lists never decode the full screenshot.
     private static func thumbnail(_ png: Data) -> Data? {
         guard let image = Cache.scaled(CGImageSourceCreateWithData(png as CFData, nil), Store.thumbnailSize),

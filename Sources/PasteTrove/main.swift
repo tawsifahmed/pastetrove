@@ -35,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         panel = PanelController(model: model)
         panel.onPick = { [weak self] item, mode in self?.use(item, mode) }
+        panel.onPickMany = { [weak self] items, mode in self?.use(items, mode) }
         panel.onCopy = { [weak self] item in self?.monitor.write(item, plain: false) }
         panel.onCommand = { [weak self] in self?.run($0) }
 
@@ -125,6 +126,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if query.contains(where: { $0.name == "preview" && $0.value == "1" }) {
             panel.togglePreview()
         }
+    }
+
+    /// Pastes in tap order, one group at a time; the app reads the clipboard after each ⌘V, so wait before the next write.
+    private func use(_ items: [Item], _ mode: PickMode) {
+        if items.count == 1 { return use(items[0], mode) }
+        guard AXIsProcessTrusted() else { return requestAccessibility() }
+        let groups = Model.pasteGroups(items)
+        func paste(_ index: Int) {
+            guard groups.indices.contains(index) else { return }
+            let group = groups[index]
+            // Text after earlier text (an image between them) starts on a new line.
+            let afterText = groups[..<index].contains { $0[0].isText }
+            if group[0].isText, group.count > 1 || afterText {
+                monitor.write(text: (afterText ? "\n" : "") + group.map(\.text).joined(separator: "\n"))
+            } else {
+                monitor.write(group[0], plain: mode == .plain)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { Self.pressCommandV() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { paste(index + 1) }
+        }
+        paste(0)
     }
 
     private func use(_ item: Item, _ mode: PickMode) {

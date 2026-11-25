@@ -79,6 +79,14 @@ func age(seconds: Double, label: String) {
     #expect(model.query.isEmpty && model.shown.count == 11 && model.toTop == 3)
 }
 
+@Test func severalPastesJoinNeighbouringText() {
+    func item(_ id: Int64, _ kind: Kind) -> Item {
+        Item(id: id, kind: kind, style: .plain, text: "\(id)", app: nil, created: 0, pinned: false)
+    }
+    let groups = Model.pasteGroups([item(1, .image), item(2, .text), item(3, .link), item(4, .image), item(5, .text)])
+    #expect(groups.map { $0.map(\.id) } == [[1], [2, 3], [4], [5]])
+}
+
 @Test func versionOrder() {
     #expect(Updater.isNewer("0.1.4", than: "0.1.3"))
     #expect(Updater.isNewer("0.1.10", than: "0.1.9"))
