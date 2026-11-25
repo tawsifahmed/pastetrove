@@ -9,6 +9,8 @@ VERSION=$(plutil -extract CFBundleShortVersionString raw Info.plist)
 scripts/build.sh universal
 rm -rf dist && mkdir -p dist
 ditto -c -k --keepParent build.noindex/PasteTrove.app "dist/PasteTrove-$VERSION.zip"
+# Symbols for reading crash reports of this exact build; uploaded with the release, not part of the app.
+ditto -c -k --keepParent build.noindex/PasteTrove.dSYM "dist/PasteTrove-$VERSION-dSYM.zip"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 cp -R build.noindex/PasteTrove.app "$STAGE/"
@@ -16,4 +18,4 @@ ln -s /Applications "$STAGE/Applications"
 hdiutil create -volname "PasteTrove $VERSION" -srcfolder "$STAGE" -ov -format UDZO dist/PasteTrove.dmg >/dev/null
 SHA=$(shasum -a 256 "dist/PasteTrove-$VERSION.zip" | cut -d' ' -f1)
 sed -i '' -e "s/^  version \".*\"/  version \"$VERSION\"/" -e "s/^  sha256 .*/  sha256 \"$SHA\"/" Casks/pastetrove.rb
-echo "OK: dist/PasteTrove-$VERSION.zip ($(du -h "dist/PasteTrove-$VERSION.zip" | cut -f1)), dist/PasteTrove.dmg, cask sha256 $SHA"
+echo "OK: dist/PasteTrove-$VERSION.zip ($(du -h "dist/PasteTrove-$VERSION.zip" | cut -f1)), dist/PasteTrove.dmg, dist/PasteTrove-$VERSION-dSYM.zip, cask sha256 $SHA"

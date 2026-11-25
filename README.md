@@ -24,8 +24,8 @@
 
 ---
 
-- **Native and light.** Swift and AppKit/SwiftUI, no dependencies, about 1 MB. Lives in the menu bar and uses almost no CPU when idle.
-- **Private.** History is stored only on your Mac. There is no network code, no account and no sync.
+- **Native and light.** Swift and AppKit/SwiftUI, no dependencies, under 1 MB to download. Lives in the menu bar and uses almost no CPU when idle.
+- **Private.** History is stored only on your Mac. No account and no sync. The only network request is a once-a-day check on GitHub for a new version, which you can turn off in Settings. Nothing from your clipboard is ever sent.
 - **Keeps everything.** Text, rich text, code, Markdown, colors, links, images and files. History stays after a restart.
 - **Fast to use.** One shortcut, type to search, ⏎ to paste into the app you were using.
 
@@ -55,7 +55,7 @@ brew install --cask pastetrove
 
 `brew trust` is needed once on Homebrew versions that only load casks from taps you trust. The cask clears the download quarantine flag for you.
 
-Update with `brew upgrade --cask pastetrove`. Uninstall with `brew uninstall --cask pastetrove`, and add `--zap` to also remove your history and settings.
+PasteTrove updates itself: when a new version is out, it asks, then installs and relaunches. `brew upgrade --cask pastetrove` works too. Uninstall with `brew uninstall --cask pastetrove`, and add `--zap` to also remove your history and settings.
 
 ### First start
 
@@ -172,6 +172,7 @@ scripts/build.sh install         # builds, copies PasteTrove.app to /Application
 | Preview | `Preview.swift` | The large preview window beside the panel. |
 | Caches | `Cache.swift` | App icons, thumbnails and text, so scrolling never reads the disk twice. |
 | Shortcut and settings | `Settings.swift` | Global hotkey through Carbon `RegisterEventHotKey`, shortcut recorder, limits, launch at login through `SMAppService`. |
+| Updates | `Updater.swift` | Checks GitHub Releases once a day. Installs a new version only when its checksum matches and macOS confirms it is signed with the same certificate as the running app. |
 | Brand | `BrandMark.swift`, `About.swift` | The P mark for the menu bar and app icon, and the About window. |
 | App | `main.swift` | Menu bar icon, menus, copy sound and icon flip, and the ⌘V key event that pastes. |
 

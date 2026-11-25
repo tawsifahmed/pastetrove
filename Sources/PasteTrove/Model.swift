@@ -84,6 +84,8 @@ final class Model: ObservableObject {
     @Published private(set) var toTop = 0
     /// ⌘1–9 badges show only while ⌘ is held, numbered from the first visible item.
     @Published var paused = false
+    /// A newer version waiting to be installed, shown in the gear menu.
+    @Published var updateVersion: String?
     /// Grid View columns; more fit as the panel gets wider.
     @Published var gridColumns = 2
     @Published var commandHeld = false
