@@ -117,6 +117,28 @@ func age(seconds: Double, label: String) {
     #expect(groups.map { $0.map(\.id) } == [[1], [2, 3], [4], [5]])
 }
 
+@Test func aDragCarriesEachItemAndJoinsNeighbouringText() throws {
+    setenv("PASTETROVE_DATA_DIR", NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)", 1)
+    let store = try Store()
+    let png = Data([0x89, 0x50, 0x4E, 0x47])
+    let long = String(repeating: "x", count: 3000)
+    for text in [long, "second"] {
+        store.save(Capture(kind: .text, text: text, key: Data(text.utf8), reps: [("public.utf8-plain-text", Data(text.utf8))]),
+                   app: nil, limit: 100, imageLimit: 10)
+    }
+    store.save(Capture(kind: .image, text: "Image 1×1", key: png, reps: [("public.png", png)]), app: nil, limit: 100, imageLimit: 10)
+    store.save(Capture(kind: .file, text: "/tmp/a.txt", key: Data("f".utf8), reps: [("io.github.tawsifahmed.pastetrove.file-urls", Data("file:///tmp/a.txt".utf8))]),
+               app: nil, limit: 100, imageLimit: 10)
+    let items = store.items().reversed() as [Item]
+    let entries = Monitor(store: store).dragWriters(items)
+
+    #expect(entries.map(\.0.id) == [items[0].id, items[2].id, items[3].id])
+    // The full text, not the list's first 2,000 characters.
+    #expect((entries[0].1 as? NSPasteboardItem)?.string(forType: .string) == long + "\nsecond")
+    #expect((entries[1].1 as? NSPasteboardItem)?.data(forType: .png) == png)
+    #expect((entries[2].1 as? NSURL)?.path == "/tmp/a.txt")
+}
+
 @Test func versionOrder() {
     #expect(Updater.isNewer("0.1.4", than: "0.1.3"))
     #expect(Updater.isNewer("0.1.10", than: "0.1.9"))

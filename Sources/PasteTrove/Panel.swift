@@ -1,6 +1,7 @@
 import AppKit
 import Carbon
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Borderless panels refuse key focus by default; the search field needs it.
 final class FloatingPanel: NSPanel {
@@ -17,6 +18,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     var onPickMany: (([Item], PickMode) -> Void)?
     var onCopy: ((Item) -> Void)?
     var onCommand: ((PanelCommand) -> Void)?
+    var onDrag: (([Item]) -> [(Item, NSPasteboardWriting)])?
 
     private let model: Model
     private let panel: FloatingPanel
@@ -25,6 +27,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private var hiddenAt = Date.distantPast
     /// A flash is showing before a paste; a second ⏎ meanwhile is ignored.
     private var picking = false
+    private var dragging = false
 
     private static let digits: [Int: Int] = [
         kVK_ANSI_1: 1, kVK_ANSI_2: 2, kVK_ANSI_3: 3, kVK_ANSI_4: 4, kVK_ANSI_5: 5,
@@ -50,7 +53,8 @@ final class PanelController: NSObject, NSWindowDelegate {
             pick: { [weak self] item, mode in self?.flashThenPick(item, mode) },
             copy: { [weak self] item in self?.copy(item) },
             command: { [weak self] in self?.run($0) },
-            togglePreview: { [weak self] in self?.togglePreview() }
+            togglePreview: { [weak self] in self?.togglePreview() },
+            drag: { [weak self] in self?.drag($0) }
         ))
     }
 
@@ -170,6 +174,35 @@ final class PanelController: NSObject, NSWindowDelegate {
         preview.toggle(beside: panel.frame)
     }
 
+    /// Starts a system drag of the item, or of every queued item when it is one of them, in their order.
+    private func drag(_ item: Item) {
+        guard !dragging, let event = NSApp.currentEvent, event.type == .leftMouseDragged, let view = panel.contentView else { return }
+        let entries = onDrag?(model.queue.contains { $0.id == item.id } ? model.queue : [item]) ?? []
+        guard !entries.isEmpty else { return }
+        dragging = true
+        let point = view.convert(event.locationInWindow, from: nil)
+        let drags = entries.enumerated().map { index, entry in
+            let icon = dragIcon(entry.0, entry.1)
+            // Fits 64 points, keeping the shape; several items fan out a little.
+            let scale = 64 / max(icon.size.width, icon.size.height, 1)
+            let size = NSSize(width: icon.size.width * scale, height: icon.size.height * scale)
+            let shift = CGFloat(min(index, 4) * 6)
+            let drag = NSDraggingItem(pasteboardWriter: entry.1)
+            drag.setDraggingFrame(NSRect(x: point.x - size.width / 2 + shift, y: point.y - size.height / 2 + shift, width: size.width, height: size.height), contents: icon)
+            return drag
+        }
+        view.beginDraggingSession(with: drags, event: event, source: self)
+    }
+
+    private func dragIcon(_ item: Item, _ entry: NSPasteboardWriting) -> NSImage {
+        if let url = entry as? NSURL, let path = url.path { return Cache.fileIcon(path) }
+        switch item.kind {
+        case .image: return Cache.thumbnail(item, store: model.store, size: 128) ?? NSWorkspace.shared.icon(for: .image)
+        case .link: return NSWorkspace.shared.icon(for: .url)
+        default: return NSWorkspace.shared.icon(for: .plainText)
+        }
+    }
+
     private static func clamp(_ frame: NSRect, to screen: NSRect) -> NSRect {
         var frame = frame
         frame.origin.x = min(max(frame.minX, screen.minX + 6), screen.maxX - frame.width - 6)
@@ -254,6 +287,18 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 }
 
+extension PanelController: NSDraggingSource {
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+        context == .outsideApplication ? .copy : []
+    }
+
+    /// A drop finishes like a paste and closes the panel; a cancelled drag leaves it open.
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        dragging = false
+        if operation != [] { hide() }
+    }
+}
+
 extension NSPanel {
     /// Clear, shadowed, floating on every Space, and showing `view`.
     func float(_ view: some View) {
@@ -276,6 +321,7 @@ struct PanelView: View {
     let copy: (Item) -> Void
     let command: (PanelCommand) -> Void
     let togglePreview: () -> Void
+    let drag: (Item) -> Void
     @FocusState private var searchFocused: Bool
 
     var body: some View {
@@ -420,6 +466,8 @@ struct PanelView: View {
                         model.selected = index
                     }
                 }
+                // Dragging an item out drops it into another app or a Finder window.
+                .simultaneousGesture(DragGesture(minimumDistance: 6).onChanged { _ in drag(item) })
                 .contextMenu { menu(for: item) }
                 .background(GeometryReader { geometry in
                     // Only rendered cells report; the smallest index whose top is in view wins.
