@@ -28,6 +28,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     /// A flash is showing before a paste; a second ⏎ meanwhile is ignored.
     private var picking = false
     private var dragging = false
+    private var draggingFiles = false
 
     private static let digits: [Int: Int] = [
         kVK_ANSI_1: 1, kVK_ANSI_2: 2, kVK_ANSI_3: 3, kVK_ANSI_4: 4, kVK_ANSI_5: 5,
@@ -180,6 +181,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         let entries = onDrag?(model.queue.contains { $0.id == item.id } ? model.queue : [item]) ?? []
         guard !entries.isEmpty else { return }
         dragging = true
+        draggingFiles = entries.contains { $0.1 is NSURL }
         let point = view.convert(event.locationInWindow, from: nil)
         let drags = entries.enumerated().map { index, entry in
             let icon = dragImage(entry.0, entry.1)
@@ -298,7 +300,10 @@ final class PanelController: NSObject, NSWindowDelegate {
 
 extension PanelController: NSDraggingSource {
     func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
-        context == .outsideApplication ? .copy : []
+        // Files are only ever copied, so Finder never moves one out of its folder. Text and images take
+        // whatever the target asks for: some apps, like code editors, accept only a move.
+        guard context == .outsideApplication else { return [] }
+        return draggingFiles ? .copy : [.copy, .move, .generic]
     }
 
     /// A drop finishes like a paste and closes the panel; a cancelled drag leaves it open.
