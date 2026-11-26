@@ -48,6 +48,12 @@ enum Settings {
         set { defaults.set(newValue, forKey: "ignoredApps") }
     }
 
+    /// After each copy: the menu bar icon turns blue and a note under it shows what was saved.
+    static var showCopied: Bool {
+        get { defaults.object(forKey: "showCopied") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "showCopied") }
+    }
+
     static var playSound: Bool {
         get { defaults.object(forKey: "playSound") as? Bool ?? true }
         set { defaults.set(newValue, forKey: "playSound") }
@@ -196,6 +202,9 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
     }
     @Published var placement = Settings.placement {
         didSet { Settings.placement = placement }
+    }
+    @Published var showCopied = Settings.showCopied {
+        didSet { Settings.showCopied = showCopied }
     }
     @Published var playSound = Settings.playSound {
         didSet { Settings.playSound = playSound }
@@ -388,6 +397,10 @@ struct GeneralSettings: View {
             }
             Section {
                 Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+                Toggle(isOn: $model.showCopied) {
+                    Text("Show what was copied")
+                    Text("The menu bar icon turns blue and a small note under it shows what was saved.")
+                }
                 Toggle("Play sound when copying", isOn: $model.playSound)
                 Toggle(isOn: $model.multiPaste) {
                     Text("Paste several at once")
