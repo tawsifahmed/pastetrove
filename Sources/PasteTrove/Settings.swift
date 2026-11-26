@@ -2,6 +2,7 @@ import AppKit
 import Carbon
 import ServiceManagement
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum Settings {
     private static let defaults = UserDefaults.standard
@@ -39,6 +40,18 @@ enum Settings {
     static var multiPaste: Bool {
         get { defaults.bool(forKey: "multiPaste") }
         set { defaults.set(newValue, forKey: "multiPaste") }
+    }
+
+    /// Apps whose copies are never saved, by bundle ID.
+    static var ignoredApps: [String] {
+        get { defaults.stringArray(forKey: "ignoredApps") ?? [] }
+        set { defaults.set(newValue, forKey: "ignoredApps") }
+    }
+
+    /// After each copy: the menu bar icon turns blue and a note under it shows what was saved.
+    static var showCopied: Bool {
+        get { defaults.object(forKey: "showCopied") as? Bool ?? true }
+        set { defaults.set(newValue, forKey: "showCopied") }
     }
 
     static var playSound: Bool {
@@ -82,7 +95,11 @@ enum Settings {
     }
 
     static func openClipboardPrivacySettings() {
-        let url = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Pasteboard"
+        openPrivacySettings("Privacy_Pasteboard")
+    }
+
+    static func openPrivacySettings(_ pane: String) {
+        let url = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?\(pane)"
         if let url = URL(string: url) { NSWorkspace.shared.open(url) }
     }
 
@@ -115,14 +132,13 @@ struct Shortcut: Codable, Equatable {
 
     static let `default` = Shortcut(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | shiftKey), key: "V")
 
-    var label: String {
-        var text = ""
-        if modifiers & UInt32(controlKey) != 0 { text += "⌃" }
-        if modifiers & UInt32(optionKey) != 0 { text += "⌥" }
-        if modifiers & UInt32(shiftKey) != 0 { text += "⇧" }
-        if modifiers & UInt32(cmdKey) != 0 { text += "⌘" }
-        return text + key
+    /// Modifier symbols in Apple's order, then the key.
+    var keys: [String] {
+        [(controlKey, "⌃"), (optionKey, "⌥"), (shiftKey, "⇧"), (cmdKey, "⌘")]
+            .filter { modifiers & UInt32($0.0) != 0 }.map(\.1) + [key]
     }
+
+    var label: String { keys.joined() }
 }
 
 extension Shortcut {
@@ -187,13 +203,20 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
     @Published var placement = Settings.placement {
         didSet { Settings.placement = placement }
     }
+    @Published var showCopied = Settings.showCopied {
+        didSet { Settings.showCopied = showCopied }
+    }
     @Published var playSound = Settings.playSound {
         didSet { Settings.playSound = playSound }
     }
     @Published var multiPaste = Settings.multiPaste {
         didSet { Settings.multiPaste = multiPaste }
     }
+    @Published var ignoredApps = Settings.ignoredApps {
+        didSet { Settings.ignoredApps = ignoredApps }
+    }
     @Published var clipboardAllowed = Settings.clipboardAllowed
+    @Published var accessibilityAllowed = AXIsProcessTrusted()
     @Published var autoUpdate = Settings.autoUpdate {
         didSet { Settings.autoUpdate = autoUpdate }
     }
@@ -215,19 +238,54 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
     func show() {
         launchAtLogin = SMAppService.mainApp.status == .enabled
         clipboardAllowed = Settings.clipboardAllowed
+        accessibilityAllowed = AXIsProcessTrusted()
         autoUpdate = Settings.autoUpdate
-        if window == nil {
-            let view = SettingsView(model: self, panel: panelModel)
-            let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-            window.title = "PasteTrove Settings"
-            window.styleMask = [.titled, .closable]
-            window.isReleasedWhenClosed = false
-            window.delegate = self
-            self.window = window
-        }
+        if window == nil { window = makeWindow() }
         window?.center()
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
+    }
+
+    func makeWindow() -> NSWindow {
+        let tabs = NSTabViewController()
+        tabs.tabStyle = .toolbar
+        tabs.transitionOptions = [.allowUserInteraction]
+        tab(tabs, "General", "gearshape", GeneralSettings(model: self, panel: panelModel))
+        tab(tabs, "History", "clock", HistorySettings(model: self))
+        tab(tabs, "Privacy", "hand.raised", PrivacySettings(model: self))
+        let window = NSWindow(contentViewController: tabs)
+        window.styleMask = [.titled, .closable]
+        window.toolbarStyle = .preference
+        window.isReleasedWhenClosed = false
+        window.delegate = self
+        return window
+    }
+
+    /// A toolbar tab, like the settings of macOS apps; the window fits each tab's height.
+    private func tab(_ tabs: NSTabViewController, _ title: String, _ symbol: String, _ view: some View) {
+        let host = NSHostingController(rootView: view.formStyle(.grouped).frame(width: 480).fixedSize())
+        host.sizingOptions = .preferredContentSize
+        host.title = title
+        let item = NSTabViewItem(viewController: host)
+        item.label = title
+        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        tabs.addTabViewItem(item)
+    }
+
+    /// Picks apps whose copies are never saved.
+    func addIgnoredApps() {
+        guard let window else { return }
+        let open = NSOpenPanel()
+        open.allowedContentTypes = [.application]
+        open.allowsMultipleSelection = true
+        open.directoryURL = URL(fileURLWithPath: "/Applications")
+        open.prompt = "Ignore"
+        open.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK else { return }
+            let ids = open.urls.compactMap { Bundle(url: $0)?.bundleIdentifier }
+            let current = ignoredApps
+            ignoredApps += ids.filter { !current.contains($0) && $0 != Bundle.main.bundleIdentifier }
+        }
     }
 
     /// A lower limit deletes the oldest unpinned items, so it asks first. `images` picks the image limit.
@@ -272,14 +330,24 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
                 shortcutError = "Use ⌘, ⌥ or ⌃ with a key."
                 return
             }
-            if hotkey.register(new) {
-                shortcut = new
-                Settings.shortcut = new
-            } else {
-                shortcutError = "\(new.label) is already used by another app."
-            }
+            use(new)
         }
         stopRecording()
+    }
+
+    func resetShortcut() {
+        shortcutError = nil
+        use(.default)
+    }
+
+    private func use(_ new: Shortcut) {
+        if hotkey.register(new) {
+            shortcut = new
+            Settings.shortcut = new
+        } else {
+            shortcutError = "\(new.label) is already used by another app."
+            hotkey.register(shortcut)
+        }
     }
 
     private func stopRecording() {
@@ -294,19 +362,31 @@ final class SettingsController: NSObject, ObservableObject, NSWindowDelegate {
     }
 }
 
-struct SettingsView: View {
+struct GeneralSettings: View {
     @ObservedObject var model: SettingsController
     @ObservedObject var panel: Model
 
     var body: some View {
         Form {
             Section {
-                LabeledContent("Open PasteTrove") {
-                    Button(model.recording ? "Press new shortcut…" : model.shortcut.label) { model.startRecording() }
-                        .frame(minWidth: 150)
-                }
-                if let error = model.shortcutError {
-                    Text(error).font(.caption).foregroundStyle(.red)
+                LabeledContent {
+                    HStack(spacing: 8) {
+                        if model.shortcut != .default, !model.recording {
+                            Button("Reset", systemImage: "arrow.counterclockwise") { model.resetShortcut() }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.borderless)
+                                .help("Reset to \(Shortcut.default.label)")
+                        }
+                        Button { model.startRecording() } label: {
+                            if model.recording { Keycap(text: "Type a shortcut", active: true) } else { Keycaps(keys: model.shortcut.keys) }
+                        }
+                        .buttonStyle(.plain)
+                        .help("Click, then press the new shortcut. Esc cancels.")
+                    }
+                } label: {
+                    Text("Open PasteTrove")
+                    Text(model.shortcutError ?? "Click the keys to change them.")
+                        .foregroundStyle(model.shortcutError == nil ? Color.secondary : Color.red)
                 }
                 Picker("When appears", selection: $model.placement) {
                     ForEach(Placement.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -314,19 +394,20 @@ struct SettingsView: View {
                 Picker("Layout", selection: $panel.layout) {
                     ForEach(Layout.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
-                LabeledContent("Clipboard access") {
-                    if model.clipboardAllowed {
-                        Label("Always Allow", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                    } else {
-                        Button("Set to Always Allow…") { Settings.openClipboardPrivacySettings() }
-                    }
-                }
+            }
+            Section {
                 Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
+                Toggle(isOn: $model.showCopied) {
+                    Text("Show what was copied")
+                    Text("The menu bar icon turns blue and a small note under it shows what was saved.")
+                }
                 Toggle("Play sound when copying", isOn: $model.playSound)
                 Toggle(isOn: $model.multiPaste) {
                     Text("Paste several at once")
                     Text("Hold ⌘, tap numbers or click items, then let go of ⌘ to paste them in order.")
                 }
+            }
+            Section {
                 Toggle(isOn: $model.autoUpdate) {
                     Text("Check for updates automatically")
                     Text("Once a day, from GitHub. Nothing from your clipboard is sent.")
@@ -335,7 +416,16 @@ struct SettingsView: View {
                     Button("Check Now") { model.onCheckUpdates?() }
                 }
             }
-            Section("History") {
+        }
+    }
+}
+
+struct HistorySettings: View {
+    @ObservedObject var model: SettingsController
+
+    var body: some View {
+        Form {
+            Section {
                 Picker("Keep items", selection: Binding(get: { model.historyLimit }, set: { model.setLimit($0, images: false) })) {
                     ForEach([500, 1000, 2000, 5000, 10000], id: \.self) { Text("\($0)").tag($0) }
                 }
@@ -343,16 +433,98 @@ struct SettingsView: View {
                     ForEach([50, 100, 200, 500], id: \.self) { Text("\($0)").tag($0) }
                 }
                 LabeledContent("Pinned items", value: "Always kept")
-                Button("Clear History…", role: .destructive) { model.onClear?() }
+            } footer: {
+                Text("History is saved on this Mac and stays after a restart.").foregroundStyle(.secondary)
             }
             Section {
-                Text("History is saved on this Mac and stays after a restart. Items that password managers mark as secret are never saved. To paste into other apps, PasteTrove needs Accessibility access: System Settings → Privacy & Security → Accessibility.")
-                    .font(.caption)
+                LabeledContent("Remove everything except pinned items") {
+                    Button("Clear History…", role: .destructive) { model.onClear?() }
+                }
+            }
+        }
+    }
+}
+
+struct PrivacySettings: View {
+    @ObservedObject var model: SettingsController
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent {
+                    allowed(model.clipboardAllowed, "Always Allow", "Set to Always Allow…") { Settings.openClipboardPrivacySettings() }
+                } label: {
+                    Text("Clipboard access")
+                    Text("To save copies without asking each time.")
+                }
+                LabeledContent {
+                    allowed(model.accessibilityAllowed, "On", "Turn On…") { Settings.openPrivacySettings("Privacy_Accessibility") }
+                } label: {
+                    Text("Accessibility")
+                    Text("To paste into other apps.")
+                }
+            }
+            Section {
+                ForEach(model.ignoredApps, id: \.self) { id in
+                    HStack(spacing: 8) {
+                        Image(nsImage: Cache.appIcon(id)).resizable().frame(width: 20, height: 20)
+                        Text(Cache.appName(id))
+                        Spacer()
+                        Button("Remove", systemImage: "minus.circle.fill") { model.ignoredApps.removeAll { $0 == id } }
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .help("Save copies from \(Cache.appName(id)) again")
+                    }
+                }
+                Button("Add App…") { model.addIgnoredApps() }
+            } header: {
+                Text("Ignored Apps")
+            } footer: {
+                Text("Copies made in these apps are never saved. Items that password managers mark as private are always skipped.")
                     .foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped)
-        .frame(width: 440)
-        .fixedSize()
+    }
+
+    @ViewBuilder private func allowed(_ on: Bool, _ status: String, _ fix: String, open: @escaping () -> Void) -> some View {
+        if on {
+            Label(status, systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+        } else {
+            Button(fix, action: open)
+        }
+    }
+}
+
+/// A shortcut drawn as separate keys, like on the keyboard.
+struct Keycaps: View {
+    let keys: [String]
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(Array(keys.enumerated()), id: \.offset) { Keycap(text: $0.element) }
+        }
+    }
+}
+
+struct Keycap: View {
+    let text: String
+    var active = false
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(active ? Color.secondary : Color.primary)
+            .frame(minWidth: 24, minHeight: 24)
+            .padding(.horizontal, text.count > 1 ? 8 : 0)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color(nsColor: .controlColor))
+                    .shadow(color: .black.opacity(0.2), radius: 0, y: 1)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(active ? Color.accentColor : Color.primary.opacity(0.15), lineWidth: active ? 1.5 : 1)
+            )
     }
 }

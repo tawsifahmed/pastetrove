@@ -260,6 +260,28 @@ struct Card: View {
 }
 
 /// Multi-line content used by the rich list and grid cards.
+/// What a drag shows: an image's picture, or a small card with the item's content.
+struct DragPreview: View {
+    let item: Item
+    let store: Store
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Group {
+            if item.kind == .image, let image = Cache.thumbnail(item, store: store, size: Store.thumbnailSize) {
+                Image(nsImage: image).resizable().aspectRatio(contentMode: .fit).frame(maxWidth: 180, maxHeight: 180)
+            } else {
+                ClipContent(item: item, store: store, lines: 4)
+                    .padding(10)
+                    .frame(width: 220, alignment: .topLeading)
+                    .background(scheme == .dark ? Color(white: 0.16) : Color.white)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Color.primary.opacity(0.12)))
+    }
+}
+
 struct ClipContent: View {
     let item: Item
     let store: Store
