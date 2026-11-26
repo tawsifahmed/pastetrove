@@ -182,11 +182,10 @@ final class PanelController: NSObject, NSWindowDelegate {
         dragging = true
         let point = view.convert(event.locationInWindow, from: nil)
         let drags = entries.enumerated().map { index, entry in
-            let icon = dragIcon(entry.0, entry.1)
-            // Fits 64 points, keeping the shape; several items fan out a little.
-            let scale = 64 / max(icon.size.width, icon.size.height, 1)
-            let size = NSSize(width: icon.size.width * scale, height: icon.size.height * scale)
-            let shift = CGFloat(min(index, 4) * 6)
+            let icon = dragImage(entry.0, entry.1)
+            let size = icon.size
+            // Several items fan out a little.
+            let shift = CGFloat(min(index, 4) * 8)
             let drag = NSDraggingItem(pasteboardWriter: entry.1)
             drag.setDraggingFrame(NSRect(x: point.x - size.width / 2 + shift, y: point.y - size.height / 2 + shift, width: size.width, height: size.height), contents: icon)
             return drag
@@ -194,13 +193,23 @@ final class PanelController: NSObject, NSWindowDelegate {
         view.beginDraggingSession(with: drags, event: event, source: self)
     }
 
-    private func dragIcon(_ item: Item, _ entry: NSPasteboardWriting) -> NSImage {
-        if let url = entry as? NSURL, let path = url.path { return Cache.fileIcon(path) }
-        switch item.kind {
-        case .image: return Cache.thumbnail(item, store: model.store, size: 128) ?? NSWorkspace.shared.icon(for: .image)
-        case .link: return NSWorkspace.shared.icon(for: .url)
-        default: return NSWorkspace.shared.icon(for: .plainText)
+    /// Files show their icon; everything else a small rounded card of its own content, like in the panel.
+    private func dragImage(_ item: Item, _ entry: NSPasteboardWriting) -> NSImage {
+        if let url = entry as? NSURL, let path = url.path {
+            let icon = Cache.fileIcon(path).copy() as! NSImage
+            icon.size = NSSize(width: 64, height: 64)
+            return icon
         }
+        // Drags start from a mouse event, always on the main thread.
+        let image = MainActor.assumeIsolated {
+            let dark = panel.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let renderer = ImageRenderer(content: DragPreview(item: item, store: model.store).environment(\.colorScheme, dark ? .dark : .light))
+            renderer.scale = panel.backingScaleFactor
+            var image: NSImage?
+            panel.effectiveAppearance.performAsCurrentDrawingAppearance { image = renderer.nsImage }
+            return image
+        }
+        return image ?? NSWorkspace.shared.icon(for: .plainText)
     }
 
     private static func clamp(_ frame: NSRect, to screen: NSRect) -> NSRect {
