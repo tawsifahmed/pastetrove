@@ -135,6 +135,27 @@ func age(seconds: Double, label: String) {
     #expect(ImageText.read(png)?.contains("INVOICE 4021") == true)
 }
 
+@Test func aHelperProcessReadsTheWordsAndQuits() async throws {
+    let store = try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)"))
+    let image = NSImage(size: NSSize(width: 600, height: 160), flipped: false) { rect in
+        NSColor.white.setFill()
+        rect.fill()
+        ("RECEIPT 7788" as NSString).draw(at: NSPoint(x: 30, y: 60), withAttributes: [.font: NSFont.systemFont(ofSize: 40)])
+        return true
+    }
+    let png = try #require(NSBitmapImageRep(data: image.tiffRepresentation!)?.representation(using: .png, properties: [:]))
+    store.save(Capture(kind: .image, text: "Image", key: png, reps: [("public.png", png)]), app: nil, limit: 10, imageLimit: 10)
+    // The app binary that `swift test` builds next to the tests.
+    let binary = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent(".build/debug/PasteTrove")
+    let reader = ImageText(store: store, helper: binary)
+    await withCheckedContinuation { done in
+        reader.onChange = { id, left in if id != nil, left == 0 { done.resume() } }
+        reader.readNew()
+    }
+    #expect(store.items().first?.words.contains("RECEIPT 7788") == true)
+}
+
 @Test func severalPastesJoinNeighbouringText() {
     func item(_ id: Int64, _ kind: Kind) -> Item {
         Item(id: id, kind: kind, style: .plain, text: "\(id)", app: nil, created: 0, pinned: false)

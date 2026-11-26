@@ -367,6 +367,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 }
 
+// A helper copy only reads image text, then quits (see ImageText).
+if CommandLine.arguments.contains(ImageText.flag) {
+    ImageText.serve()
+    exit(0)
+}
+// A helper that quits early must fail the write, not end the app.
+signal(SIGPIPE, SIG_IGN)
+
 let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
