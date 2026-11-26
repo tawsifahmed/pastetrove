@@ -296,6 +296,8 @@ final class PanelController: NSObject, NSWindowDelegate {
             model.cycleLayout()
         case kVK_ANSI_Y:
             togglePreview()
+        case kVK_ANSI_Equal, kVK_ANSI_Minus:
+            return preview.zoom(in: key == kVK_ANSI_Equal)
         case kVK_ANSI_Comma:
             run(.settings)
         default:
