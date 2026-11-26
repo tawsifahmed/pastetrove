@@ -199,6 +199,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     /// Sound plus a flip of the menu bar icon, so a copy is noticed without looking.
     private let copyPill = CopyPill()
+
+    private static func tinted(_ image: NSImage, _ color: NSColor) -> NSImage {
+        NSImage(size: image.size, flipped: false) { rect in
+            image.draw(in: rect)
+            color.set()
+            rect.fill(using: .sourceAtop)
+            return true
+        }
+    }
     private var tintResets = 0
 
     private func copyFeedback(_ clip: Capture) {
@@ -207,6 +216,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             copySound?.play()
         }
         guard let button = statusItem.button else { return }
+        if Settings.showCopied {
+            // A colored copy of the icon: the menu bar can draw a tinted template icon blank.
+            // Swapped before the flip, so the redraw never interrupts it.
+            button.image = Self.tinted(BrandMark.menuBarImage(), .controlAccentColor)
+            tintResets += 1
+            let current = tintResets
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                if self?.tintResets == current { button.image = BrandMark.menuBarImage() }
+            }
+        }
         button.wantsLayer = true
         guard let layer = button.layer else { return }
         // Rotate around the icon's center, not the layer's default bottom-left corner.
@@ -220,17 +239,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         flip.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         layer.add(flip, forKey: "flip")
         guard Settings.showCopied else { return }
-        // A bigger flip in the accent color, and a note under the icon with what was saved.
+        // A bigger flip, and a note under the icon with what was saved.
         let grow = CAKeyframeAnimation(keyPath: "transform.scale")
-        grow.values = [1, 1.3, 1]
+        grow.values = [1, 1.2, 1]
         grow.duration = 0.5
         layer.add(grow, forKey: "grow")
-        button.contentTintColor = .controlAccentColor
-        tintResets += 1
-        let current = tintResets
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            if self?.tintResets == current { button.contentTintColor = nil }
-        }
         if let window = button.window { copyPill.show(clip, below: window.frame) }
     }
 
