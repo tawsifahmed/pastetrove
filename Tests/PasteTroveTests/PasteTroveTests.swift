@@ -64,6 +64,37 @@ func age(seconds: Double, label: String) {
     #expect(copy(NSHomeDirectory() + "/Desktop/photo.jpg", image: true) == .file)
 }
 
+@Test func hugeImagesAreSkippedWithoutDecoding() throws {
+    setenv("PASTETROVE_DATA_DIR", NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)", 1)
+    let pasteboard = NSPasteboard(name: .init("pastetrove-test-\(UUID().uuidString)"))
+    defer { pasteboard.releaseGlobally() }
+    let monitor = Monitor(store: try Store(), pasteboard: pasteboard)
+    func copy(_ data: Data, _ type: NSPasteboard.PasteboardType) -> Capture? {
+        pasteboard.clearContents()
+        pasteboard.setData(data, forType: type)
+        return monitor.read(pasteboard.types?.map(\.rawValue) ?? [])
+    }
+    let small = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 3, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4,
+                                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    #expect(copy(try #require(small.representation(using: .png, properties: [:])), .png)?.text == "Image 3×2")
+    #expect(copy(try #require(small.tiffRepresentation), .tiff)?.text == "Image 3×2")
+    // A PNG header claiming 20,000 × 20,000 pixels (400 megapixels): skipped, never decoded.
+    func chunk(_ type: String, _ body: [UInt8]) -> [UInt8] {
+        let bytes = Array(type.utf8) + body
+        var crc: UInt32 = 0xFFFF_FFFF
+        for byte in bytes {
+            crc ^= UInt32(byte)
+            for _ in 0..<8 { crc = crc & 1 == 1 ? (crc >> 1) ^ 0xEDB8_8320 : crc >> 1 }
+        }
+        func be(_ n: UInt32) -> [UInt8] { [24, 16, 8, 0].map { UInt8(truncatingIfNeeded: n >> $0) } }
+        return be(UInt32(body.count)) + bytes + be(~crc)
+    }
+    let huge = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
+        + chunk("IHDR", [0x00, 0x00, 0x4E, 0x20, 0x00, 0x00, 0x4E, 0x20, 8, 6, 0, 0, 0])
+        + chunk("IDAT", [0x78, 0x9C, 0x63, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01]) + chunk("IEND", []))
+    #expect(copy(huge, .png) == nil)
+}
+
 @Test func searchIgnoresCaseAndAccents() {
     #expect(Model.fold("Café ÉCLAIR") == "cafe eclair")
     #expect(Model.fold("Crème").contains(Model.fold("CREME")))

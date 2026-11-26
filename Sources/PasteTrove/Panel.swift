@@ -25,6 +25,8 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let preview: PreviewController
     private var keyMonitor: Any?
     private var hiddenAt = Date.distantPast
+    /// When a `pastetrove://` link last opened the panel.
+    private var linkOpenedAt = Date.distantPast
     /// A flash is showing before a paste; a second ⏎ meanwhile is ignored.
     private var picking = false
     private var dragging = false
@@ -68,7 +70,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         }
     }
 
-    func show(at anchor: Anchor) {
+    /// `fromLink`: opened by a `pastetrove://` link, which any web page can ask the browser to open.
+    func show(at anchor: Anchor, fromLink: Bool = false) {
+        if fromLink { linkOpenedAt = Date() }
         model.open()
         let point: NSPoint
         if case let .below(rect) = anchor {
@@ -230,6 +234,12 @@ final class PanelController: NSObject, NSWindowDelegate {
         let noModifiers = flags.intersection([.command, .shift, .control, .option]).isEmpty
         let grid = model.layout == .grid
         let key = Int(event.keyCode)
+        // Right after a link opened the panel, ⏎ and ⌘ + number wait half a second,
+        // so a key press meant for the web page never pastes history into it.
+        if Date().timeIntervalSince(linkOpenedAt) < 0.5,
+           key == kVK_Return || key == kVK_ANSI_KeypadEnter || (command && Self.digits[key] != nil) {
+            return true
+        }
 
         switch key {
         case kVK_Escape:
