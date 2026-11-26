@@ -4,6 +4,7 @@ import SwiftUI
 /// Large preview of the selected item, shown beside the panel. It never takes focus, so typing stays in the search field.
 final class PreviewController {
     private let panel: NSPanel
+    private let zoom = ZoomBox()
 
     init(model: Model) {
         panel = NSPanel(
@@ -12,7 +13,15 @@ final class PreviewController {
             backing: .buffered,
             defer: false
         )
-        panel.float(PreviewWindow(model: model))
+        panel.float(PreviewWindow(model: model, zoom: zoom))
+    }
+
+    /// ⌘+ and ⌘−; false when no image preview is open.
+    func zoom(in zoomIn: Bool) -> Bool {
+        guard panel.isVisible, let scroll = zoom.scroll, scroll.window != nil else { return false }
+        let target = scroll.magnification * (zoomIn ? 1.5 : 1 / 1.5)
+        scroll.animator().magnification = min(max(target, scroll.minMagnification), scroll.maxMagnification)
+        return true
     }
 
     func toggle(beside main: NSRect) {
@@ -36,15 +45,17 @@ final class PreviewController {
 
 struct PreviewWindow: View {
     @ObservedObject var model: Model
+    let zoom: ZoomBox
 
     var body: some View {
-        PreviewPane(item: model.current, store: model.store).panelChrome()
+        PreviewPane(item: model.current, store: model.store, zoom: zoom).panelChrome()
     }
 }
 
 struct PreviewPane: View {
     let item: Item?
     let store: Store
+    let zoom: ZoomBox
 
     var body: some View {
         if let item {
@@ -94,16 +105,12 @@ struct PreviewPane: View {
             .padding(16)
         case .image:
             if let image = Cache.thumbnail(item, store: store, size: 1400) {
-                Image(nsImage: image).resizable().scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(16)
+                ZoomImage(image: image, box: zoom) { Cache.thumbnail(item, store: store, size: 5000) }
             }
         case .file:
             let urls = item.paths.map { URL(fileURLWithPath: $0) }
             if urls.count == 1, let image = Cache.fileThumbnail(urls[0], size: 1400) {
-                Image(nsImage: image).resizable().scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(16)
+                ZoomImage(image: image, box: zoom) { Cache.fileThumbnail(urls[0], size: 5000) }
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {
@@ -160,5 +167,120 @@ struct TextPreview: NSViewRepresentable {
         view.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         view.textColor = .labelColor
         view.scrollToBeginningOfDocument(nil)
+    }
+}
+
+/// The preview's image scroll view, so ⌘+ and ⌘− in the panel can zoom it.
+final class ZoomBox {
+    weak var scroll: NSScrollView?
+}
+
+/// An image that fits the preview and zooms: pinch, double-click (fit ↔ 3×), ⌘+ and ⌘−, then scroll to move around.
+/// It starts from the preview-size picture; the sharp full-size one is decoded only once you zoom in.
+struct ZoomImage: NSViewRepresentable {
+    let image: NSImage
+    let box: ZoomBox
+    let sharp: () -> NSImage?
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.contentView = CenteringClipView()
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.allowsMagnification = true
+        let view = FirstClickImageView()
+        view.imageScaling = .scaleProportionallyUpOrDown
+        scroll.documentView = view
+        let click = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleClick(_:)))
+        click.numberOfClicksRequired = 2
+        scroll.addGestureRecognizer(click)
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.zoomed(_:)),
+                                               name: NSScrollView.didEndLiveMagnifyNotification, object: scroll)
+        // Fits again once SwiftUI sizes the view, unless you zoomed in.
+        scroll.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.resized(_:)),
+                                               name: NSView.frameDidChangeNotification, object: scroll)
+        box.scroll = scroll
+        context.coordinator.scroll = scroll
+        return scroll
+    }
+
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
+        box.scroll = scroll
+        context.coordinator.sharp = sharp
+        guard let view = scroll.documentView as? NSImageView, context.coordinator.shown !== image else { return }
+        context.coordinator.shown = image
+        context.coordinator.sharpLoaded = false
+        context.coordinator.fitted = false
+        view.image = image
+        view.frame = NSRect(origin: .zero, size: image.size)
+        context.coordinator.fit()
+    }
+
+    final class Coordinator: NSObject {
+        weak var scroll: NSScrollView?
+        weak var shown: NSImage?
+        var sharp: (() -> NSImage?)?
+        var sharpLoaded = false
+        /// False until the current image was fitted to a sized view.
+        var fitted = false
+
+        func fit() {
+            guard let scroll, let size = scroll.documentView?.frame.size, size.width > 0, size.height > 0 else { return }
+            let box = scroll.frame.size
+            guard box.width > 32, box.height > 32 else { return }
+            let fit = min((box.width - 32) / size.width, (box.height - 32) / size.height)
+            scroll.minMagnification = fit
+            scroll.maxMagnification = max(fit * 8, 4)
+            scroll.magnification = fit
+            fitted = true
+        }
+
+        @objc func doubleClick(_ click: NSClickGestureRecognizer) {
+            guard let scroll, let view = scroll.documentView else { return }
+            let point = view.convert(click.location(in: scroll), from: scroll)
+            if scroll.magnification > scroll.minMagnification * 1.05 {
+                scroll.animator().magnification = scroll.minMagnification
+            } else {
+                scroll.animator().setMagnification(min(scroll.minMagnification * 3, scroll.maxMagnification), centeredAt: point)
+            }
+            loadSharp()
+        }
+
+        @objc func resized(_ note: Notification) {
+            guard let scroll, !fitted || scroll.magnification <= scroll.minMagnification * 1.01 else { return }
+            fit()
+        }
+
+        @objc func zoomed(_ note: Notification) {
+            loadSharp()
+        }
+
+        /// Swaps in the full-size picture at the same frame, so zooming in stays crisp.
+        private func loadSharp() {
+            guard !sharpLoaded, let view = scroll?.documentView as? NSImageView else { return }
+            sharpLoaded = true
+            if let image = sharp?() { view.image = image }
+        }
+    }
+}
+
+/// The preview never takes focus, so its first click must count, or a double-click would need three.
+private final class FirstClickImageView: NSImageView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// Keeps a picture smaller than the preview in its center instead of the bottom-left corner.
+private final class CenteringClipView: NSClipView {
+    override func constrainBoundsRect(_ proposed: NSRect) -> NSRect {
+        var rect = super.constrainBoundsRect(proposed)
+        guard let document = documentView?.frame.size else { return rect }
+        if rect.width > document.width { rect.origin.x = (document.width - rect.width) / 2 }
+        if rect.height > document.height { rect.origin.y = (document.height - rect.height) / 2 }
+        return rect
     }
 }

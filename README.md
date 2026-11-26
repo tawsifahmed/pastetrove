@@ -85,7 +85,7 @@ Pick a layout from the button in the bottom-left corner of the panel, or press �
 | Rich List | Source app, age, and up to 5 lines of text or a large image. |
 | Grid View | Cards in two columns. Best for screenshots and images. |
 
-Press **Space** (with an empty search field) or **⌘Y** to open a large preview beside the panel.
+Press **Space** (with an empty search field) or **⌘Y** to open a large preview beside the panel. Images zoom like in Preview: pinch, double-click, or ⌘+ and ⌘−; swipe with two fingers to move around a zoomed image.
 
 <p align="center">
   <img src="docs/images/preview.png" width="80%" alt="A large preview of the selected screenshot beside the panel">
@@ -110,6 +110,7 @@ PasteTrove recognizes **code** (terminal commands, source code, JSON, SQL), **Ma
 | ⌘C | Copy and keep the panel open |
 | Hold ⌘, then 1 … 9 or 0 | Paste one of the first ten visible items (0 is the tenth). Holding ⌘ shows glowing numbers on them. With **Paste several at once** on, tap several, then let go of ⌘. |
 | Space, ⌘Y | Preview |
+| ⌘+, ⌘− | Zoom the image in the preview |
 | ⇥ / ⇧⇥ | Next / previous filter |
 | ⌘P | Pin or unpin. Pinned items stay at the top and are never removed. |
 | ⌘⌫ | Delete the item |
