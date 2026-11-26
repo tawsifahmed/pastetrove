@@ -13,6 +13,8 @@ final class CopyPill {
         panel.float(EmptyView())
         panel.level = .statusBar
         panel.ignoresMouseEvents = true
+        // Left out of screenshots and recordings: a quick screenshot right after a copy must not show the note.
+        panel.sharingType = .none
     }
 
     func show(_ clip: Capture, below icon: NSRect) {
