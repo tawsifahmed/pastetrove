@@ -15,8 +15,10 @@ struct Item: Identifiable, Equatable {
     let app: String?
     let created: Double
     let pinned: Bool
+    /// Words read from an image, for search. Empty for other kinds.
+    let words: String
 
-    init(id: Int64, kind: Kind, style: TextStyle, text: String, app: String?, created: Double, pinned: Bool) {
+    init(id: Int64, kind: Kind, style: TextStyle, text: String, app: String?, created: Double, pinned: Bool, words: String = "") {
         self.id = id
         self.kind = kind
         self.style = style
@@ -24,6 +26,7 @@ struct Item: Identifiable, Equatable {
         self.app = app
         self.created = created
         self.pinned = pinned
+        self.words = words
         preview = text.prefix(300).split(whereSeparator: \.isNewline)
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
@@ -74,8 +77,7 @@ final class Store {
             .appendingPathComponent("PasteTrove", isDirectory: true)
     }
 
-    init() throws {
-        let dir = Self.directory
+    init(directory dir: URL = Store.directory) throws {
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         guard sqlite3_open(dir.appendingPathComponent("history.sqlite").path, &db) == SQLITE_OK else {
             throw NSError(domain: "PasteTrove", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot open the history database."])
@@ -106,7 +108,9 @@ final class Store {
     }
 
     /// Adds the `style` column to older databases and fills it once for existing text items.
+    /// `words` (image text, NULL until read) is added the same way; images get read in the background.
     private func migrate() {
+        sqlite3_exec(db, "ALTER TABLE items ADD COLUMN words TEXT", nil, nil, nil)
         guard sqlite3_exec(db, "ALTER TABLE items ADD COLUMN style INTEGER NOT NULL DEFAULT 0", nil, nil, nil) == SQLITE_OK
         else { return }
         var texts: [(Int64, String)] = []
@@ -123,7 +127,7 @@ final class Store {
     /// The list rows. Text is cut to 2,000 characters for the list and search; preview and paste read the full data from `reps`.
     func items() -> [Item] {
         var out: [Item] = []
-        query("SELECT id, kind, style, substr(text, 1, 2000), app, created, pinned FROM items ORDER BY pinned DESC, created DESC") { st in
+        query("SELECT id, kind, style, substr(text, 1, 2000), app, created, pinned, substr(words, 1, 4000) FROM items ORDER BY pinned DESC, created DESC") { st in
             out.append(Item(
                 id: sqlite3_column_int64(st, 0),
                 kind: Kind(rawValue: Int(sqlite3_column_int(st, 1))) ?? .text,
@@ -131,7 +135,8 @@ final class Store {
                 text: Self.string(st, 3) ?? "",
                 app: Self.string(st, 4),
                 created: sqlite3_column_double(st, 5),
-                pinned: sqlite3_column_int(st, 6) != 0
+                pinned: sqlite3_column_int(st, 6) != 0,
+                words: Self.string(st, 7) ?? ""
             ))
         }
         return out
@@ -193,6 +198,19 @@ final class Store {
         if sqlite3_total_changes(db) > before {
             sqlite3_exec(db, "PRAGMA incremental_vacuum", nil, nil, nil)
         }
+    }
+
+    /// Images whose words have not been read yet, newest first.
+    func unreadImages() -> [Int64] {
+        var out: [Int64] = []
+        query("SELECT id FROM items WHERE kind = ? AND words IS NULL ORDER BY created DESC", [Kind.image.rawValue]) {
+            out.append(sqlite3_column_int64($0, 0))
+        }
+        return out
+    }
+
+    func setWords(_ id: Int64, _ words: String) {
+        query("UPDATE items SET words = ? WHERE id = ?", [words, id])
     }
 
     func reps(_ id: Int64) -> [(String, Data)] {

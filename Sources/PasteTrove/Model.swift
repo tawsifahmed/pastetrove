@@ -113,6 +113,15 @@ final class Model: ObservableObject {
     var columns: Int { layout == .grid ? gridColumns : 1 }
 
     /// Keeps the same item selected when a new copy arrives while the panel is open.
+    /// Images still waiting for their words; while searching, results can still grow.
+    @Published var reading = 0
+
+    /// An image's words were just read: search it again, now with them.
+    func wordsRead(_ id: Int64) {
+        searchText[id] = nil
+        if query.isEmpty { stale = true } else { reload() }
+    }
+
     func reload() {
         guard isOpen else {
             stale = true
@@ -217,12 +226,20 @@ final class Model: ObservableObject {
 
     private func searchKey(_ item: Item) -> String {
         if let hit = searchText[item.id] { return hit }
-        let key = Self.fold(item.text)
+        let key = Self.fold(item.words.isEmpty ? item.text : item.text + "\n" + item.words)
         searchText[item.id] = key
         return key
     }
 
     static func fold(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+        // Hyphens are dropped, so "wifi" finds "Wi-Fi" and "email" finds "e-mail".
+        String(text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).compactMap { $0 == "-" ? nil : lookalikes[$0] ?? $0 })
     }
+
+    /// Text read from images sometimes comes back with Cyrillic or Greek letters that look Latin ("НТТР"),
+    /// so both sides of a search treat them as their Latin twins.
+    private static let lookalikes: [Character: Character] = [
+        "а": "a", "в": "b", "е": "e", "к": "k", "м": "m", "н": "h", "о": "o", "р": "p", "с": "c", "т": "t", "у": "y", "х": "x",
+        "α": "a", "ε": "e", "ι": "i", "κ": "k", "ν": "v", "ο": "o", "ρ": "p", "τ": "t", "υ": "u", "χ": "x",
+    ]
 }

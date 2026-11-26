@@ -28,6 +28,7 @@
 - **Private.** History is stored only on your Mac. No account and no sync. The only network request is a once-a-day check on GitHub for a new version, which you can turn off in Settings. Nothing from your clipboard is ever sent.
 - **Keeps everything.** Text, rich text, code, Markdown, colors, links, images and files. History stays after a restart.
 - **Fast to use.** One shortcut, type to search, ⏎ to paste into the app you were using.
+- **Finds screenshots by their words.** Text in copied images is read once, on your Mac, with macOS's own text recognition, so "invoice" or "502" finds the screenshot. Right-click an image → **Copy Text**.
 
 ## Install
 
@@ -100,7 +101,7 @@ PasteTrove recognizes **code** (terminal commands, source code, JSON, SQL), **Ma
 
 | Key | Action |
 |---|---|
-| Type | Search (every word must match) |
+| Type | Search (every word must match; words inside images count too) |
 | ↑ ↓, ⌃N ⌃P | Move the selection (← → also move in Grid View) |
 | ⌘↑ ⌘↓, Page Up / Page Down | Jump to the top or bottom, move by 10 |
 | ⏎ | Paste |

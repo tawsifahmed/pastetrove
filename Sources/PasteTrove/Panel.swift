@@ -364,7 +364,9 @@ struct PanelView: View {
             VStack(spacing: 8) {
                 Image(systemName: "doc.on.doc").font(.system(size: 38)).foregroundStyle(.tertiary)
                 Text(model.query.isEmpty ? "No Clips Yet" : "No Matches").font(.headline).foregroundStyle(.secondary)
-                Text(model.query.isEmpty ? "Copied items will appear here." : "Try other words or another filter.")
+                Text(model.query.isEmpty ? "Copied items will appear here."
+                     : model.reading > 0 ? "Still reading \(counted(model.reading, "image")). Matches may appear."
+                     : "Try other words or another filter.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -437,6 +439,13 @@ struct PanelView: View {
             Button("Paste as Plain Text") { pick(item, .plain) }
         }
         Button("Copy") { copy(item) }
+        if !item.words.isEmpty {
+            // A normal copy, so the words also land in the history.
+            Button("Copy Text") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(item.words, forType: .string)
+            }
+        }
         Divider()
         Button("Preview") {
             model.select(item)
@@ -516,6 +525,8 @@ struct PanelView: View {
                     .controlSize(.small)
                     .foregroundStyle(.tint)
                     .help("Install PasteTrove \(version)")
+            } else if !model.query.isEmpty, model.reading > 0 {
+                Text("Reading text in \(counted(model.reading, "image"))…")
             } else {
                 Text(counted(model.shown.count, "item"))
             }

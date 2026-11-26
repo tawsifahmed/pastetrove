@@ -5,6 +5,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var store: Store!
     private var model: Model!
     private var monitor: Monitor!
+    private var imageText: ImageText!
     private var panel: PanelController!
     private var hotkey: Hotkey!
     private var settings: SettingsController!
@@ -27,11 +28,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         model = Model(store: store)
         monitor = Monitor(store: store)
+        imageText = ImageText(store: store)
+        imageText.onChange = { [weak self] id, left in
+            self?.model.reading = left
+            if let id { self?.model.wordsRead(id) }
+        }
         monitor.onCapture = { [weak self] in
             self?.model.reload()
             self?.copyFeedback()
+            self?.imageText.readNew()
         }
         monitor.start()
+        imageText.readNew()
 
         panel = PanelController(model: model)
         panel.onPick = { [weak self] item, mode in self?.use(item, mode) }
@@ -358,6 +366,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         model.reload()
     }
 }
+
+// A helper copy only reads image text, then quits (see ImageText).
+if CommandLine.arguments.contains(ImageText.flag) {
+    ImageText.serve()
+    exit(0)
+}
+// A helper that quits early must fail the write, not end the app.
+signal(SIGPIPE, SIG_IGN)
 
 let app = NSApplication.shared
 let delegate = AppDelegate()
