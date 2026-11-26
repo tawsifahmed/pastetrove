@@ -44,10 +44,9 @@ func age(seconds: Double, label: String) {
 }
 
 @Test func keepsThePictureNotAnotherAppsTempFile() throws {
-    setenv("PASTETROVE_DATA_DIR", NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)", 1)
     let pasteboard = NSPasteboard(name: .init("pastetrove-test-\(UUID().uuidString)"))
     defer { pasteboard.releaseGlobally() }
-    let monitor = Monitor(store: try Store(), pasteboard: pasteboard)
+    let monitor = Monitor(store: try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)")), pasteboard: pasteboard)
     let pixel = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 2, pixelsHigh: 2, bitsPerSample: 8, samplesPerPixel: 4,
                                  hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
     let png = try #require(pixel.representation(using: .png, properties: [:]))
@@ -68,6 +67,8 @@ func age(seconds: Double, label: String) {
 @Test func searchIgnoresCaseAndAccents() {
     #expect(Model.fold("Café ÉCLAIR") == "cafe eclair")
     #expect(Model.fold("Crème").contains(Model.fold("CREME")))
+    #expect(Model.fold("НТТР/1.1 502").contains(Model.fold("http")))
+    #expect(Model.fold("Wi-Fi: BlueDoor-5G").contains(Model.fold("wifi")))
 }
 
 @Test func countedNouns() {
@@ -77,8 +78,7 @@ func age(seconds: Double, label: String) {
 }
 
 @Test func reopensWhereYouLeftOffUntilANewCopy() throws {
-    setenv("PASTETROVE_DATA_DIR", NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)", 1)
-    let store = try Store()
+    let store = try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)"))
     func copy(_ text: String) {
         store.save(Capture(kind: .text, text: text, key: Data(text.utf8), reps: [("public.utf8-plain-text", Data(text.utf8))]),
                    app: nil, limit: 100, imageLimit: 10)
@@ -109,12 +109,81 @@ func age(seconds: Double, label: String) {
     #expect(model.query.isEmpty && model.shown.count == 11 && model.toTop == 3)
 }
 
+@Test func searchFindsImagesByTheirWords() throws {
+    let store = try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)"))
+    let png = Data("not really a png".utf8)
+    store.save(Capture(kind: .image, text: "Image 10×10", key: png, reps: [("public.png", png)]), app: nil, limit: 100, imageLimit: 10)
+    let id = try #require(store.unreadImages().first)
+    let model = Model(store: store)
+    model.open()
+    model.query = "invoice"
+    #expect(model.shown.isEmpty)
+
+    store.setWords(id, "INVOICE #4021\nTotal $13.50")
+    model.wordsRead(id)
+    #expect(model.shown.map(\.id) == [id] && store.unreadImages().isEmpty)
+}
+
+@Test func readsTheWordsInAnImage() throws {
+    let image = NSImage(size: NSSize(width: 600, height: 160), flipped: false) { rect in
+        NSColor.white.setFill()
+        rect.fill()
+        ("INVOICE 4021 paid" as NSString).draw(at: NSPoint(x: 30, y: 60), withAttributes: [.font: NSFont.systemFont(ofSize: 40)])
+        return true
+    }
+    let png = try #require(NSBitmapImageRep(data: image.tiffRepresentation!)?.representation(using: .png, properties: [:]))
+    #expect(ImageText.read(png)?.contains("INVOICE 4021") == true)
+}
+
+@Test func aHelperProcessReadsTheWordsAndQuits() async throws {
+    let store = try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)"))
+    let image = NSImage(size: NSSize(width: 600, height: 160), flipped: false) { rect in
+        NSColor.white.setFill()
+        rect.fill()
+        ("RECEIPT 7788" as NSString).draw(at: NSPoint(x: 30, y: 60), withAttributes: [.font: NSFont.systemFont(ofSize: 40)])
+        return true
+    }
+    let png = try #require(NSBitmapImageRep(data: image.tiffRepresentation!)?.representation(using: .png, properties: [:]))
+    store.save(Capture(kind: .image, text: "Image", key: png, reps: [("public.png", png)]), app: nil, limit: 10, imageLimit: 10)
+    // The app binary that `swift test` builds next to the tests.
+    let binary = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent(".build/debug/PasteTrove")
+    let reader = ImageText(store: store, helper: binary)
+    await withCheckedContinuation { done in
+        reader.onChange = { id, left in if id != nil, left == 0 { done.resume() } }
+        reader.readNew()
+    }
+    #expect(store.items().first?.words.contains("RECEIPT 7788") == true)
+}
+
 @Test func severalPastesJoinNeighbouringText() {
     func item(_ id: Int64, _ kind: Kind) -> Item {
         Item(id: id, kind: kind, style: .plain, text: "\(id)", app: nil, created: 0, pinned: false)
     }
     let groups = Model.pasteGroups([item(1, .image), item(2, .text), item(3, .link), item(4, .image), item(5, .text)])
     #expect(groups.map { $0.map(\.id) } == [[1], [2, 3], [4], [5]])
+}
+
+@Test func aDragCarriesEachItemAndJoinsNeighbouringText() throws {
+    setenv("PASTETROVE_DATA_DIR", NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)", 1)
+    let store = try Store()
+    let png = Data([0x89, 0x50, 0x4E, 0x47])
+    let long = String(repeating: "x", count: 3000)
+    for text in [long, "second"] {
+        store.save(Capture(kind: .text, text: text, key: Data(text.utf8), reps: [("public.utf8-plain-text", Data(text.utf8))]),
+                   app: nil, limit: 100, imageLimit: 10)
+    }
+    store.save(Capture(kind: .image, text: "Image 1×1", key: png, reps: [("public.png", png)]), app: nil, limit: 100, imageLimit: 10)
+    store.save(Capture(kind: .file, text: "/tmp/a.txt", key: Data("f".utf8), reps: [("io.github.tawsifahmed.pastetrove.file-urls", Data("file:///tmp/a.txt".utf8))]),
+               app: nil, limit: 100, imageLimit: 10)
+    let items = store.items().reversed() as [Item]
+    let entries = Monitor(store: store).dragWriters(items)
+
+    #expect(entries.map(\.0.id) == [items[0].id, items[2].id, items[3].id])
+    // The full text, not the list's first 2,000 characters.
+    #expect((entries[0].1 as? NSPasteboardItem)?.string(forType: .string) == long + "\nsecond")
+    #expect((entries[1].1 as? NSPasteboardItem)?.data(forType: .png) == png)
+    #expect((entries[2].1 as? NSURL)?.path == "/tmp/a.txt")
 }
 
 @Test func versionOrder() {

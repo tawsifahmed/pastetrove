@@ -9,8 +9,8 @@ final class Monitor {
     private let store: Store
     private let pasteboard: NSPasteboard
     private var lastChange: Int
-    /// Kept alive while its image is on the clipboard.
-    private var tiffProvider: TIFFProvider?
+    /// Kept alive while their images are on the clipboard or in a drag.
+    private var tiffProviders: [TIFFProvider] = []
 
     private static let fileList = "io.github.tawsifahmed.pastetrove.file-urls"
     private static let maxSize = 30_000_000
@@ -97,35 +97,56 @@ final class Monitor {
     /// Puts an item back on the clipboard. `plain` drops rich text and keeps only the plain string.
     /// The item keeps its place in the history.
     func write(_ item: Item, plain: Bool) {
+        tiffProviders = []
+        let entries = writers(item, plain: plain)
+        // A broken item never empties the clipboard.
+        guard !entries.isEmpty else { return }
+        pasteboard.clearContents()
+        pasteboard.writeObjects(entries)
+        lastChange = pasteboard.changeCount
+    }
+
+    /// What a drag carries: one entry per item, and text next to text joined into one, like a multi-paste.
+    func dragWriters(_ items: [Item]) -> [(Item, NSPasteboardWriting)] {
+        tiffProviders = []
+        return Model.pasteGroups(items).flatMap { group -> [(Item, NSPasteboardWriting)] in
+            guard group.count > 1 else { return writers(group[0], plain: false).map { (group[0], $0) } }
+            let entry = NSPasteboardItem()
+            entry.setString(group.map(fullText).joined(separator: "\n"), forType: .string)
+            return [(group[0], entry)]
+        }
+    }
+
+    /// What an item becomes on a pasteboard: its files, its image, or its text with every saved format.
+    private func writers(_ item: Item, plain: Bool) -> [NSPasteboardWriting] {
         let reps = store.reps(item.id)
         func data(_ type: String) -> Data? { reps.first { $0.0 == type }?.1 }
-        // Each branch checks its data before touching the clipboard, so a broken item never empties it.
         switch item.kind {
         case .file:
             let urls = data(Self.fileList).flatMap { String(data: $0, encoding: .utf8) }?
                 .split(separator: "\n").compactMap { URL(string: String($0)) } ?? []
-            guard !urls.isEmpty else { return }
-            pasteboard.clearContents()
-            pasteboard.writeObjects(urls as [NSURL])
+            return urls as [NSURL]
         case .image:
-            guard let png = data(NSPasteboard.PasteboardType.png.rawValue) else { return }
+            guard let png = data(NSPasteboard.PasteboardType.png.rawValue) else { return [] }
             // TIFF is made only if an app asks for it: for a large screenshot it is tens of MB and slow to build.
             let entry = NSPasteboardItem()
             entry.setData(png, forType: .png)
             let provider = TIFFProvider(png)
-            tiffProvider = provider
+            tiffProviders.append(provider)
             entry.setDataProvider(provider, forTypes: [.tiff])
-            pasteboard.clearContents()
-            pasteboard.writeObjects([entry])
+            return [entry]
         case .text, .link:
             let use = plain ? reps.filter { $0.0 == NSPasteboard.PasteboardType.string.rawValue } : reps
-            guard !use.isEmpty else { return }
-            pasteboard.declareTypes(use.map { NSPasteboard.PasteboardType($0.0) }, owner: nil)
-            for (type, data) in use {
-                pasteboard.setData(data, forType: NSPasteboard.PasteboardType(type))
-            }
+            guard !use.isEmpty else { return [] }
+            let entry = NSPasteboardItem()
+            for (type, data) in use { entry.setData(data, forType: NSPasteboard.PasteboardType(type)) }
+            return [entry]
         }
-        lastChange = pasteboard.changeCount
+    }
+
+    /// The list holds only the first 2,000 characters of a text; pasting and dragging use all of it.
+    func fullText(_ item: Item) -> String {
+        store.data(item.id, type: NSPasteboard.PasteboardType.string.rawValue).map { String(decoding: $0, as: UTF8.self) } ?? item.text
     }
 
     /// Puts plain text on the clipboard without adding it to the history.

@@ -22,7 +22,8 @@ cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 # Sign with the local certificate when it exists (stable permissions), otherwise ad hoc.
 IDENTITY=-
 security find-certificate -c "PasteTrove Local Signing" >/dev/null 2>&1 && IDENTITY="PasteTrove Local Signing"
-codesign --force -s "$IDENTITY" --identifier io.github.tawsifahmed.PasteTrove "$APP"
+# Hardened runtime: no injected libraries, so no other program can borrow PasteTrove's Accessibility access.
+codesign --force --options runtime -s "$IDENTITY" --identifier io.github.tawsifahmed.PasteTrove "$APP"
 if [[ "${1:-}" == "install" ]]; then
     pkill -x PasteTrove && sleep 1 || true
     rm -rf /Applications/PasteTrove.app && cp -R "$APP" /Applications/
