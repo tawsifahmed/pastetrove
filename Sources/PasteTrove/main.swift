@@ -33,9 +33,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.model.reading = left
             if let id { self?.model.wordsRead(id) }
         }
-        monitor.onCapture = { [weak self] in
+        monitor.onCapture = { [weak self] clip in
             self?.model.reload()
-            self?.copyFeedback()
+            self?.copyFeedback(clip)
             self?.imageText.readNew()
         }
         monitor.start()
@@ -201,7 +201,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }()
 
     /// Sound plus a flip of the menu bar icon, so a copy is noticed without looking.
-    private func copyFeedback() {
+    private let copyPill = CopyPill()
+    private var tintResets = 0
+
+    private func copyFeedback(_ clip: Capture) {
         if Settings.playSound {
             copySound?.stop()
             copySound?.play()
@@ -219,6 +222,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         flip.duration = 0.5
         flip.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         layer.add(flip, forKey: "flip")
+        guard Settings.showCopied else { return }
+        // A bigger flip in the accent color, and a note under the icon with what was saved.
+        let grow = CAKeyframeAnimation(keyPath: "transform.scale")
+        grow.values = [1, 1.3, 1]
+        grow.duration = 0.5
+        layer.add(grow, forKey: "grow")
+        button.contentTintColor = .controlAccentColor
+        tintResets += 1
+        let current = tintResets
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            if self?.tintResets == current { button.contentTintColor = nil }
+        }
+        if let window = button.window { copyPill.show(clip, below: window.frame) }
     }
 
     private func togglePanel(placement: Placement, clicked: Bool = false) {

@@ -4,7 +4,7 @@ import AppKit
 /// macOS has no "clipboard changed" event, so this polls `changeCount`, which is a cheap integer read.
 final class Monitor {
     var paused = false
-    var onCapture: (() -> Void)?
+    var onCapture: ((Capture) -> Void)?
 
     private let store: Store
     private let pasteboard: NSPasteboard
@@ -50,7 +50,7 @@ final class Monitor {
               let clip = read(types)
         else { return }
         store.save(clip, app: app, limit: Settings.historyLimit, imageLimit: Settings.imageLimit)
-        onCapture?()
+        onCapture?(clip)
     }
 
     /// Data marked private, or copied in an app you chose to ignore, is never read.
