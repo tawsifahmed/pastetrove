@@ -147,3 +147,20 @@ func age(seconds: Double, label: String) {
     let json = #"{"message": "API rate limit exceeded", "documentation_url": "https://docs.github.com"}"#
     #expect((try? JSONDecoder().decode(Release.self, from: Data(json.utf8))) == nil)
 }
+
+@Test func ignoredAppsAndPrivateMarkersAreSkipped() {
+    let saved = Settings.ignoredApps
+    defer { Settings.ignoredApps = saved }
+    Settings.ignoredApps = ["com.example.bank"]
+    let text = ["public.utf8-plain-text"]
+    #expect(Monitor.skips(text, app: "com.example.bank"))
+    #expect(!Monitor.skips(text, app: "com.apple.Notes"))
+    #expect(!Monitor.skips(text, app: nil))
+    #expect(Monitor.skips(text + ["org.nspasteboard.ConcealedType"], app: "com.apple.Notes"))
+}
+
+@Test func shortcutKeysInAppleOrder() {
+    #expect(Shortcut.default.keys == ["⇧", "⌘", "V"])
+    let all = Shortcut(keyCode: 0, modifiers: 0x1B00, key: "A") // Carbon cmdKey | shiftKey | optionKey | controlKey
+    #expect(all.keys == ["⌃", "⌥", "⇧", "⌘", "A"] && all.label == "⌃⌥⇧⌘A")
+}

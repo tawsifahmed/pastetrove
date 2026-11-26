@@ -43,14 +43,19 @@ final class Monitor {
     private func check() {
         guard pasteboard.changeCount != lastChange else { return }
         lastChange = pasteboard.changeCount
+        let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         guard !paused,
               let types = pasteboard.types?.map(\.rawValue),
-              !types.contains(where: Self.ignored.contains),
+              !Self.skips(types, app: app),
               let clip = read(types)
         else { return }
-        store.save(clip, app: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
-                   limit: Settings.historyLimit, imageLimit: Settings.imageLimit)
+        store.save(clip, app: app, limit: Settings.historyLimit, imageLimit: Settings.imageLimit)
         onCapture?()
+    }
+
+    /// Data marked private, or copied in an app you chose to ignore, is never read.
+    static func skips(_ types: [String], app: String?) -> Bool {
+        types.contains(where: ignored.contains) || app.map(Settings.ignoredApps.contains) == true
     }
 
     func read(_ types: [String]) -> Capture? {

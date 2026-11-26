@@ -126,13 +126,20 @@ The gear menu has About, Settings, Pause Recording, Send Feedback, Check for Upd
   <img src="docs/images/windows.png" width="90%" alt="The About window and the Settings window">
 </p>
 
-- **Open PasteTrove**: click the button, then press the new shortcut. It needs ⌘, ⌥ or ⌃. Press esc to cancel.
-- **When appears**: where the shortcut opens the panel: near the menu bar icon (default), near the cursor, or in the center of the screen.
-- **Layout** (default Grid View), **Launch at login**, **Play sound when copying**
-- **Paste several at once** (off by default): hold ⌘, tap numbers or ⌘-click items, then let go of ⌘. They paste in the order you picked them; text next to text joins with line breaks. Tap an item again to take it out, esc to clear.
-- **Clipboard access**: shows whether "Always Allow" is set, with a button to fix it.
-- **Keep items** (500 to 10,000, default 2,000) and **Keep images** (50 to 500, default 200). The oldest unpinned items are removed first. Lowering a limit asks before deleting anything.
-- **Clear History** removes all unpinned items.
+Three tabs, like other Mac apps:
+
+- **General**
+  - **Open PasteTrove**: the shortcut, shown as keys. Click the keys, then press the new shortcut. It needs ⌘, ⌥ or ⌃. Press esc to cancel; the arrow button puts back ⇧⌘V.
+  - **When appears**: where the shortcut opens the panel: near the menu bar icon (default), near the cursor, or in the center of the screen.
+  - **Layout** (default Grid View), **Launch at login**, **Play sound when copying**
+  - **Paste several at once** (off by default): hold ⌘, tap numbers or ⌘-click items, then let go of ⌘. They paste in the order you picked them; text next to text joins with line breaks. Tap an item again to take it out, esc to clear.
+  - **Check for updates automatically**, and **Check Now**.
+- **History**
+  - **Keep items** (500 to 10,000, default 2,000) and **Keep images** (50 to 500, default 200). The oldest unpinned items are removed first. Lowering a limit asks before deleting anything.
+  - **Clear History** removes all unpinned items.
+- **Privacy**
+  - **Clipboard access** and **Accessibility**: show whether each is on, with a button to fix it.
+  - **Ignored Apps**: copies made in these apps are never saved. Click **Add App…** to pick apps, and the minus button to save from an app again.
 
 ### Open from other tools
 
@@ -149,6 +156,7 @@ Found a problem or have an idea? Choose **Send Feedback…** in the gear menu, o
 ## Privacy
 
 - PasteTrove ignores items that password managers mark as secret or temporary ([nspasteboard.org](http://nspasteboard.org) markers, used by 1Password, Bitwarden, KeePassXC and others).
+- Copies made in the apps under **Settings → Privacy → Ignored Apps** are never saved.
 - History is stored in `~/Library/Application Support/PasteTrove/history.sqlite`. Delete that folder to remove all history.
 
 ## Build from source
