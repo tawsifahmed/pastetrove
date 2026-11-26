@@ -45,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         panel.onPick = { [weak self] item, mode in self?.use(item, mode) }
         panel.onPickMany = { [weak self] items, mode in self?.use(items, mode) }
         panel.onCopy = { [weak self] item in self?.monitor.write(item, plain: false) }
+        panel.onDrag = { [weak self] in self?.monitor.dragWriters($0) ?? [] }
         panel.onCommand = { [weak self] in self?.run($0) }
 
         hotkey = Hotkey { [weak self] in self?.togglePanel(placement: Settings.placement) }
@@ -143,10 +144,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let groups = Model.pasteGroups(items)
         let target = NSWorkspace.shared.frontmostApplication?.processIdentifier
         var written = 0
-        // The list holds only the first 2,000 characters; paste the full text.
-        func fullText(_ item: Item) -> String {
-            store.data(item.id, type: NSPasteboard.PasteboardType.string.rawValue).map { String(decoding: $0, as: UTF8.self) } ?? item.text
-        }
         func paste(_ index: Int) {
             // Stop if another app came to the front or copied meanwhile, so the rest never lands somewhere else.
             guard groups.indices.contains(index),
@@ -157,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             // Text after earlier text (an image between them) starts on a new line.
             let afterText = groups[..<index].contains { $0[0].isText }
             if group[0].isText, group.count > 1 || afterText {
-                monitor.write(text: (afterText ? "\n" : "") + group.map(fullText).joined(separator: "\n"))
+                monitor.write(text: (afterText ? "\n" : "") + group.map(monitor.fullText).joined(separator: "\n"))
             } else {
                 monitor.write(group[0], plain: mode == .plain)
             }

@@ -117,7 +117,7 @@ PasteTrove recognizes **code** (terminal commands, source code, JSON, SQL), **Ma
 | ⌘, | Settings |
 | esc | Clear the search, then close |
 
-Click an item to select it, double-click to paste. Right-click an item for Paste, Paste as Plain Text, Copy, Preview, Pin, Open Link, Show in Finder and Delete.
+Click an item to select it, double-click to paste. Drag an item into any app, document or Finder window to drop it there; a picked item from **Paste several at once** brings all picked items along, in order. Right-click an item for Paste, Paste as Plain Text, Copy, Preview, Pin, Open Link, Show in Finder and Delete.
 
 The gear menu has About, Settings, Pause Recording, Send Feedback, Check for Updates, Clear History and Quit. Right-click the menu bar icon for the same menu.
 
