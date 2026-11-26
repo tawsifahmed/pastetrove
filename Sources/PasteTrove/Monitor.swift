@@ -14,6 +14,8 @@ final class Monitor {
 
     private static let fileList = "io.github.tawsifahmed.pastetrove.file-urls"
     private static let maxSize = 30_000_000
+    /// 100 megapixels: far above any screen or camera photo, below what could stall the app.
+    private static let maxPixels = 100_000_000
 
     /// Markers that password managers and similar apps put on data that must not be recorded (nspasteboard.org).
     private static let ignored: Set<String> = [
@@ -46,7 +48,9 @@ final class Monitor {
         guard !paused,
               let types = pasteboard.types?.map(\.rawValue),
               !types.contains(where: Self.ignored.contains),
-              let clip = read(types)
+              let clip = read(types),
+              // Something new arrived while reading: it gets its own check, private markers included, on the next poll.
+              pasteboard.changeCount == lastChange
         else { return }
         store.save(clip, app: NSWorkspace.shared.frontmostApplication?.bundleIdentifier,
                    limit: Settings.historyLimit, imageLimit: Settings.imageLimit)
@@ -77,16 +81,26 @@ final class Monitor {
     }
 
     private func readImage() -> Capture? {
-        // TIFF is uncompressed, so allow it to be larger, but check before converting it.
-        if let png = pasteboard.data(forType: .png)
-            ?? pasteboard.data(forType: .tiff).flatMap({ $0.count < Self.maxSize * 4 ? Self.png($0) : nil }),
-           png.count < Self.maxSize,
-           let image = NSBitmapImageRep(data: png) {
-            var reps = [(NSPasteboard.PasteboardType.png.rawValue, png)]
-            if let thumbnail = Self.thumbnail(png) { reps.append((Store.thumbnailType, thumbnail)) }
-            return Capture(kind: .image, text: "Image \(image.pixelsWide)×\(image.pixelsHigh)", key: png, reps: reps)
-        }
-        return nil
+        // TIFF is uncompressed, so allow it to be larger. The size is read from the header first,
+        // so a huge or crafted image is never decoded.
+        let copiedPNG = pasteboard.data(forType: .png)
+        guard let original = copiedPNG ?? pasteboard.data(forType: .tiff), original.count < Self.maxSize * 4,
+              let size = Self.pixelSize(original), size.width * size.height <= Self.maxPixels,
+              let png = copiedPNG ?? Self.png(original),
+              png.count < Self.maxSize
+        else { return nil }
+        var reps = [(NSPasteboard.PasteboardType.png.rawValue, png)]
+        if let thumbnail = Self.thumbnail(png) { reps.append((Store.thumbnailType, thumbnail)) }
+        return Capture(kind: .image, text: "Image \(size.width)×\(size.height)", key: png, reps: reps)
+    }
+
+    static func pixelSize(_ data: Data) -> (width: Int, height: Int)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else { return nil }
+        return (width, height)
     }
 
     /// Puts an item back on the clipboard. `plain` drops rich text and keeps only the plain string.

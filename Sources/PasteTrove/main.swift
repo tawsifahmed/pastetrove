@@ -104,7 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     /// `pastetrove://open` opens the panel, for Shortcuts, Raycast or scripts.
-    /// Optional query items: `layout=plain|rich|grid`, `preview=1`.
+    /// Optional query item: `layout=plain|rich|grid`.
     /// `pastetrove://settings` and `pastetrove://about` open those windows.
     func application(_ application: NSApplication, open urls: [URL]) {
         guard panel != nil else {
@@ -122,10 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if let layout = query.first(where: { $0.name == "layout" })?.value.flatMap(Layout.init(rawValue:)) {
             model.layout = layout
         }
-        panel.show(at: anchor(.statusIcon))
-        if query.contains(where: { $0.name == "preview" && $0.value == "1" }) {
-            panel.togglePreview()
-        }
+        panel.show(at: anchor(.statusIcon), fromLink: true)
     }
 
     /// Pastes in tap order, one group at a time; the app reads the clipboard after each ⌘V, so wait before the next write.
