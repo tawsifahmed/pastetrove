@@ -399,7 +399,7 @@ struct GeneralSettings: View {
                 Toggle("Launch at login", isOn: Binding(get: { model.launchAtLogin }, set: { model.setLaunchAtLogin($0) }))
                 Toggle(isOn: $model.showCopied) {
                     Text("Show what was copied")
-                    Text("The menu bar icon turns blue and a small note under it shows what was saved.")
+                    Text("The menu bar icon turns blue, and a small \"Copied\" note shows what kind of item was saved.")
                 }
                 Toggle("Play sound when copying", isOn: $model.playSound)
                 Toggle(isOn: $model.multiPaste) {

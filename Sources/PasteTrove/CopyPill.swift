@@ -45,55 +45,52 @@ final class CopyPill {
     }
 }
 
+/// One compact size for every kind: an icon for what was copied, and "Copied".
 struct CopyPillView: View {
     let clip: Capture
 
     var body: some View {
-        HStack(spacing: 8) {
-            leading
-            Text("Copied").fontWeight(.medium)
-            Text(detail).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 220, alignment: .leading).fixedSize()
+        HStack(spacing: 5) {
+            icon.frame(width: 16, height: 16).clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            Text("Copied").font(.system(size: 11, weight: .semibold))
+            Spacer(minLength: 0)
         }
-        .font(.system(size: 12))
-        .padding(.leading, 5)
-        .padding(.trailing, 12)
-        .padding(.vertical, 5)
+        .padding(.leading, 3)
+        .frame(width: 92, height: 22)
         .background(Capsule().fill(Color(nsColor: .windowBackgroundColor).opacity(0.96)))
         .overlay(Capsule().strokeBorder(Color.primary.opacity(0.12)))
         .padding(8)
     }
 
-    @ViewBuilder private var leading: some View {
+    @ViewBuilder private var icon: some View {
         switch clip.kind {
         case .image:
             if let data = clip.reps.first(where: { $0.0 == Store.thumbnailType })?.1, let image = NSImage(data: data) {
-                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill).frame(width: 34, height: 22)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
             } else {
-                check
+                symbol("photo")
             }
         case .file:
             // The icon by type: reading the file itself could ask for folder access.
-            let ext = (paths.first.map { ($0 as NSString).pathExtension }) ?? ""
-            Image(nsImage: NSWorkspace.shared.icon(for: UTType(filenameExtension: ext) ?? .data)).resizable().frame(width: 22, height: 22)
-        case .text, .link:
-            check
+            let ext = (clip.text.split(separator: "\n").first.map { ($0 as NSString).pathExtension }) ?? ""
+            Image(nsImage: NSWorkspace.shared.icon(for: UTType(filenameExtension: ext) ?? .data)).resizable()
+        case .link:
+            symbol("link")
+        case .text:
+            switch TextStyle(clip.text) {
+            case .color: Color(nsColor: TextStyle.color(from: clip.text) ?? .gray)
+            case .code: symbol("chevron.left.forwardslash.chevron.right")
+            case .markdown: symbol("number")
+            case .plain:
+                Text("T").font(.system(size: 10.5, weight: .bold)).foregroundStyle(.white)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.accentColor)
+            }
         }
     }
 
-    private var check: some View {
-        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.white)
-            .frame(width: 22, height: 22).background(Circle().fill(Color.accentColor))
-    }
-
-    private var paths: [String] { clip.text.split(separator: "\n").map(String.init) }
-
-    private var detail: String {
-        switch clip.kind {
-        case .file: paths.count > 1 ? "\(paths.count) files" : ((paths.first ?? "") as NSString).lastPathComponent
-        case .image: clip.text
-        case .text, .link:
-            clip.text.split(whereSeparator: \.isNewline).first.map { String($0.trimmingCharacters(in: .whitespaces).prefix(80)) } ?? ""
-        }
+    /// A white symbol on the accent color, like a small app icon.
+    private func symbol(_ name: String) -> some View {
+        Image(systemName: name).font(.system(size: 8.5, weight: .bold)).foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(Color.accentColor)
     }
 }

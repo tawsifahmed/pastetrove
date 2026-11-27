@@ -133,6 +133,7 @@ Three tabs, like other Mac apps:
 - **General**
   - **Open PasteTrove**: the shortcut, shown as keys. Click the keys, then press the new shortcut. It needs ⌘, ⌥ or ⌃. Press esc to cancel; the arrow button puts back ⇧⌘V.
   - **When appears**: where the shortcut opens the panel: near the menu bar icon (default), near the cursor, or in the center of the screen.
+  - **Show what was copied** (on by default): after each copy the menu bar icon turns blue and flips, and a small "Copied" note shows an icon for what was saved: T for text, </> for code, a link, # for Markdown, the color, a tiny preview of an image, or the file icon.
   - **Layout** (default Grid View), **Launch at login**, **Play sound when copying**
   - **Paste several at once** (off by default): hold ⌘, tap numbers or ⌘-click items, then let go of ⌘. They paste in the order you picked them; text next to text joins with line breaks. Tap an item again to take it out, esc to clear.
   - **Check for updates automatically**, and **Check Now**.
