@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0 - 2026-11-27
+
+PasteTrove 1.0: everything from 0.1.6 (image search, drag and drop, encrypted history and more), now with calmer updates.
+
+### Features
+- **updates:** After an update, a notification with the PasteTrove icon says what's new. Click it to read the full notes. macOS asks once to allow notifications.
+- **updates:** "Later" keeps the quiet "Update to…" button in the footer; the dialog opens again only for a newer version, not every day.
+- **updates:** A waiting update stays in the footer after a restart.
+- **updates:** Skipped a few versions? The update dialog shows the news of every version since yours, newest first.
+
 ## 0.1.6 - 2026-11-27
 
 ### Features
