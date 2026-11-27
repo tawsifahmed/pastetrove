@@ -291,7 +291,7 @@ func age(seconds: Double, label: String) {
 @Test func theUpdateNoticeNamesWhatIsNew() throws {
     let notes = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().appendingPathComponent("CHANGELOG.md"), encoding: .utf8)
-        .components(separatedBy: "\n## ")[1]
+        .components(separatedBy: "\n## ").first { $0.hasPrefix("0.1.6") } ?? ""
     #expect(Array(Updater.topics(notes).prefix(4)) == ["search", "paste", "drag", "preview"])
     #expect(Updater.topics("Just a sentence.").isEmpty)
 }

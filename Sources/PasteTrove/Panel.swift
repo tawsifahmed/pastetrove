@@ -24,6 +24,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     private let panel: FloatingPanel
     private let preview: PreviewController
     private var keyMonitor: Any?
+    private var pinchTap: CFMachPort?
     private var hiddenAt = Date.distantPast
     /// When a `pastetrove://` link last opened the panel.
     private var linkOpenedAt = Date.distantPast
@@ -114,11 +115,31 @@ final class PanelController: NSObject, NSWindowDelegate {
                 return handle(event) ? nil : event
             }
         }
+        if pinchTap == nil {
+            // macOS sends a pinch only to the app in front, so the preview reads it below the app layer.
+            let me = Unmanaged.passUnretained(self).toOpaque()
+            let tap: CGEventTapCallBack = { _, type, cg, me in
+                guard let me else { return Unmanaged.passUnretained(cg) }
+                let panel = Unmanaged<PanelController>.fromOpaque(me).takeUnretainedValue()
+                if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+                    if let tap = panel.pinchTap { CGEvent.tapEnable(tap: tap, enable: true) }
+                } else if let ns = NSEvent(cgEvent: cg), ns.type == .magnify, panel.preview.magnify(ns) {
+                    return nil
+                }
+                return Unmanaged.passUnretained(cg)
+            }
+            let mask = CGEventMask(1 << 29 | 1 << 30)
+            pinchTap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap, eventsOfInterest: mask, callback: tap, userInfo: me)
+                ?? CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly, eventsOfInterest: mask, callback: tap, userInfo: me)
+            if let pinchTap { CFRunLoopAddSource(CFRunLoopGetMain(), CFMachPortCreateRunLoopSource(nil, pinchTap, 0), .commonModes) }
+        }
     }
 
     func hide() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
+        if let pinchTap { CGEvent.tapEnable(tap: pinchTap, enable: false); CFMachPortInvalidate(pinchTap) }
+        pinchTap = nil
         preview.hide()
         panel.orderOut(nil)
         model.commandHeld = false

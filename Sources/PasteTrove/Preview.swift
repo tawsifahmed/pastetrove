@@ -21,6 +21,19 @@ final class PreviewController {
         guard panel.isVisible, let scroll = zoom.scroll, scroll.window != nil else { return false }
         let target = scroll.magnification * (zoomIn ? 1.5 : 1 / 1.5)
         scroll.animator().magnification = min(max(target, scroll.minMagnification), scroll.maxMagnification)
+        zoom.zoomed?()
+        return true
+    }
+
+    /// A trackpad pinch. The preview never becomes the key window (that would close the panel), so macOS
+    /// doesn't hand it the gesture; the panel's event tap passes it on. It zooms at the point under the fingers.
+    func magnify(_ event: NSEvent) -> Bool {
+        guard panel.isVisible, panel.frame.contains(NSEvent.mouseLocation), let scroll = zoom.scroll, let view = scroll.documentView, scroll.window != nil else { return false }
+        let target = min(max(scroll.magnification * (1 + event.magnification), scroll.minMagnification), scroll.maxMagnification)
+        let mouse = view.convert(panel.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        let inside = view.visibleRect.contains(mouse)
+        scroll.setMagnification(target, centeredAt: inside ? mouse : NSPoint(x: view.visibleRect.midX, y: view.visibleRect.midY))
+        if event.phase == .ended { zoom.zoomed?() }
         return true
     }
 
@@ -173,6 +186,8 @@ struct TextPreview: NSViewRepresentable {
 /// The preview's image scroll view, so ⌘+ and ⌘− in the panel can zoom it.
 final class ZoomBox {
     weak var scroll: NSScrollView?
+    /// Loads the sharp picture once zooming starts.
+    var zoomed: (() -> Void)?
 }
 
 /// An image that fits the preview and zooms: pinch, double-click (fit ↔ 3×), ⌘+ and ⌘−, then scroll to move around.
@@ -205,6 +220,7 @@ struct ZoomImage: NSViewRepresentable {
         NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.resized(_:)),
                                                name: NSView.frameDidChangeNotification, object: scroll)
         box.scroll = scroll
+        box.zoomed = { [weak coordinator = context.coordinator] in coordinator?.loadSharp() }
         context.coordinator.scroll = scroll
         return scroll
     }
@@ -261,7 +277,7 @@ struct ZoomImage: NSViewRepresentable {
         }
 
         /// Swaps in the full-size picture at the same frame, so zooming in stays crisp.
-        private func loadSharp() {
+        func loadSharp() {
             guard !sharpLoaded, let view = scroll?.documentView as? NSImageView else { return }
             sharpLoaded = true
             if let image = sharp?() { view.image = image }
