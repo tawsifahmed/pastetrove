@@ -1,4 +1,6 @@
 import AppKit
+import CryptoKit
+import SQLite3
 import Testing
 @testable import PasteTrove
 
@@ -345,4 +347,72 @@ func age(seconds: Double, label: String) {
     #expect(model.shown.count == 20 && !model.shown.contains { $0.text == "item 21" })
     model.close()
     #expect(!model.undoArmed)
+}
+
+private func tempDir() -> URL { URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)") }
+
+/// Every byte PasteTrove wrote in the folder, database and journal included.
+private func diskBytes(_ dir: URL) throws -> Data {
+    try FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)
+        .filter { $0.lastPathComponent.hasPrefix("history.sqlite") }
+        .reduce(Data()) { $0 + (try Data(contentsOf: $1)) }
+}
+
+@Test func theHistoryIsEncryptedOnDisk() throws {
+    let dir = tempDir()
+    let store = try Store(directory: dir)
+    let secret = "pt-secret-1234"
+    store.save(Capture(kind: .text, text: secret, key: Data(secret.utf8), reps: [("public.utf8-plain-text", Data(secret.utf8))]),
+               app: nil, limit: 100, imageLimit: 10)
+    let png = Data("pt-image-bytes".utf8)
+    store.save(Capture(kind: .image, text: "Image 1×1", key: png, reps: [("public.png", png)]), app: nil, limit: 100, imageLimit: 10)
+    let image = try #require(store.items().first { $0.kind == .image })
+    store.setWords(image.id, "pt-words-5678")
+
+    let items = store.items()
+    #expect(items.contains { $0.text == secret } && items.contains { $0.words == "pt-words-5678" })
+    #expect(store.data(image.id, type: "public.png") == png)
+    let disk = try diskBytes(dir)
+    for marker in [secret, "pt-image-bytes", "pt-words-5678"] { #expect(disk.range(of: Data(marker.utf8)) == nil) }
+    // Copying the same thing again still finds the one item.
+    store.save(Capture(kind: .text, text: secret, key: Data(secret.utf8), reps: [("public.utf8-plain-text", Data(secret.utf8))]),
+               app: nil, limit: 100, imageLimit: 10)
+    #expect(store.items().filter { $0.text == secret }.count == 1)
+}
+
+@Test func anOlderPlainHistoryIsEncryptedOnce() throws {
+    let dir = tempDir()
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    var db: OpaquePointer?
+    sqlite3_open(dir.appendingPathComponent("history.sqlite").path, &db)
+    sqlite3_exec(db, """
+        PRAGMA journal_mode = WAL;
+        CREATE TABLE items (id INTEGER PRIMARY KEY, hash TEXT NOT NULL UNIQUE, kind INTEGER NOT NULL, text TEXT NOT NULL,
+                            app TEXT, created REAL NOT NULL, pinned INTEGER NOT NULL DEFAULT 0, words TEXT, style INTEGER NOT NULL DEFAULT 0);
+        CREATE TABLE reps (item_id INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE, type TEXT NOT NULL, data BLOB NOT NULL,
+                           PRIMARY KEY (item_id, type));
+        INSERT INTO items (id, hash, kind, text, created) VALUES (1, '\(SHA256.hash(data: Data([0]) + Data("pt-old-secret".utf8)).map { String(format: "%02x", $0) }.joined())', 0, 'pt-old-secret', 1);
+        INSERT INTO reps VALUES (1, 'public.utf8-plain-text', CAST('pt-old-secret' AS BLOB));
+        """, nil, nil, nil)
+    sqlite3_close(db)
+
+    let store = try Store(directory: dir)
+    #expect(store.items().map(\.text) == ["pt-old-secret"] && store.data(1, type: "public.utf8-plain-text") == Data("pt-old-secret".utf8))
+    #expect(try diskBytes(dir).range(of: Data("pt-old-secret".utf8)) == nil)
+    // The old duplicate check carries over: the same copy again finds the same item.
+    store.save(Capture(kind: .text, text: "pt-old-secret", key: Data("pt-old-secret".utf8), reps: [("public.utf8-plain-text", Data("pt-old-secret".utf8))]),
+               app: nil, limit: 100, imageLimit: 10)
+    #expect(store.items().count == 1)
+}
+
+@Test func aMissingKeyNeverTurnsTheHistoryIntoNoise() throws {
+    let dir = tempDir()
+    let store = try Store(directory: dir)
+    store.save(Capture(kind: .text, text: "kept", key: Data("kept".utf8), reps: [("public.utf8-plain-text", Data("kept".utf8))]),
+               app: nil, limit: 100, imageLimit: 10)
+    // Another key reads nothing and does not crash.
+    #expect(try Store(directory: dir, key: SymmetricKey(size: .bits256)).items().isEmpty)
+    // No key at all: refuse to open instead of making a new key.
+    try FileManager.default.removeItem(at: dir.appendingPathComponent("history.key"))
+    #expect(throws: (any Error).self) { try Store(directory: dir) }
 }
