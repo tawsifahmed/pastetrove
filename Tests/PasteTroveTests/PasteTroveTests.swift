@@ -269,7 +269,31 @@ func age(seconds: Double, label: String) {
 
 @Test func aRateLimitReplyIsNotARelease() {
     let json = #"{"message": "API rate limit exceeded", "documentation_url": "https://docs.github.com"}"#
-    #expect((try? JSONDecoder().decode(Release.self, from: Data(json.utf8))) == nil)
+    #expect((try? JSONDecoder().decode([Release].self, from: Data(json.utf8))) == nil)
+}
+
+@Test func anUpdateShowsTheNewsOfEveryVersionSinceYours() throws {
+    func release(_ version: String, _ note: String, prerelease: Bool = false) -> String {
+        let body = "## \(version)\\n- \(note)"
+        return #"{"tag_name": "v"#.appending(version) + #"", "body": ""#.appending(body)
+            + #"", "html_url": "https://example.com", "assets": [], "prerelease": "#.appending(String(prerelease)) + "}"
+    }
+    // Newest first, as GitHub lists them; the test app's own version counts as 0, so all are newer.
+    let json = "[\(release("0.1.8", "Eight")), \(release("0.1.8-beta", "Beta", prerelease: true)), \(release("0.1.7", "Seven"))]"
+    let newest = try #require(Updater.newest(try JSONDecoder().decode([Release].self, from: Data(json.utf8))))
+    #expect(newest.version == "0.1.8")
+    #expect(Updater.plainNotes(newest.notes ?? "") == "0.1.8\n• Eight\n\n0.1.7\n• Seven")
+    // Kept across restarts as JSON, read back the same.
+    let saved = try JSONDecoder().decode(Release.self, from: JSONEncoder().encode(newest))
+    #expect(saved.version == "0.1.8" && saved.notes == newest.notes)
+}
+
+@Test func theUpdateNoticeNamesWhatIsNew() throws {
+    let notes = try String(contentsOf: URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().appendingPathComponent("CHANGELOG.md"), encoding: .utf8)
+        .components(separatedBy: "\n## ")[1]
+    #expect(Array(Updater.topics(notes).prefix(4)) == ["search", "paste", "drag", "preview"])
+    #expect(Updater.topics("Just a sentence.").isEmpty)
 }
 
 @Test func ignoredAppsAndPrivateMarkersAreSkipped() {

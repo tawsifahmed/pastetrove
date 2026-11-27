@@ -81,6 +81,12 @@ enum Settings {
         set { defaults.set(newValue, forKey: "skippedVersion") }
     }
 
+    /// A version the person chose "Later" for: the footer offers it, but the dialog waits for a newer one.
+    static var postponedVersion: String? {
+        get { defaults.string(forKey: "postponedVersion") }
+        set { defaults.set(newValue, forKey: "postponedVersion") }
+    }
+
     static var lastUpdateCheck: Double {
         get { defaults.double(forKey: "lastUpdateCheck") }
         set { defaults.set(newValue, forKey: "lastUpdateCheck") }
