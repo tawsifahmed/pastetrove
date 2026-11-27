@@ -4,13 +4,14 @@ import Security
 import SwiftUI
 
 /// A published PasteTrove release, as the GitHub Releases API returns it.
-struct Release: Decodable {
+struct Release: Codable {
     let tag: String
-    let notes: String?
+    var notes: String?
     let page: URL
     let assets: [Asset]
+    var prerelease: Bool?
 
-    struct Asset: Decodable {
+    struct Asset: Codable {
         let name: String
         let size: Int
         /// "sha256:<hex>", published by GitHub for each uploaded file.
@@ -24,7 +25,7 @@ struct Release: Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case tag = "tag_name", notes = "body", page = "html_url", assets
+        case tag = "tag_name", notes = "body", page = "html_url", assets, prerelease
     }
 
     var version: String { tag.hasPrefix("v") ? String(tag.dropFirst()) : tag }
@@ -39,7 +40,7 @@ struct Release: Decodable {
 final class Updater {
     /// `PASTETROVE_UPDATE_URL` points the check at another feed, for tests.
     static let feed = URL(string: ProcessInfo.processInfo.environment["PASTETROVE_UPDATE_URL"]
-        ?? "https://api.github.com/repos/tawsifahmed/pastetrove/releases/latest")!
+        ?? "https://api.github.com/repos/tawsifahmed/pastetrove/releases?per_page=20")!
 
     static var current: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -47,7 +48,11 @@ final class Updater {
 
     /// A newer version that has not been installed yet, for the menus.
     private(set) var available: Release? {
-        didSet { onChange?() }
+        didSet {
+            // Kept across restarts, so the footer still offers it after a reboot.
+            UserDefaults.standard.set(available.flatMap { try? JSONEncoder().encode($0) }, forKey: "pendingRelease")
+            onChange?()
+        }
     }
     var onChange: (() -> Void)?
 
@@ -57,6 +62,10 @@ final class Updater {
 
     /// Checks soon after launch, then every hour whether a day has passed since the last check.
     func start() {
+        if let data = UserDefaults.standard.data(forKey: "pendingRelease"),
+           let saved = try? JSONDecoder().decode(Release.self, from: data), Self.isNewer(saved.version, than: Self.current) {
+            available = saved
+        }
         let timer = Timer(timeInterval: 3600, repeats: true) { [weak self] _ in self?.checkIfDue() }
         timer.tolerance = 600
         RunLoop.main.add(timer, forMode: .common)
@@ -76,7 +85,7 @@ final class Updater {
         var request = URLRequest(url: Self.feed, timeoutInterval: 20)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         URLSession.shared.dataTask(with: request) { data, _, _ in
-            let release = data.flatMap { try? JSONDecoder().decode(Release.self, from: $0) }
+            let release = data.flatMap { try? JSONDecoder().decode([Release].self, from: $0) }.flatMap(Self.newest)
             DispatchQueue.main.async { [self] in
                 checking = false
                 handle(release, manual: manual)
@@ -96,7 +105,17 @@ final class Updater {
             return
         }
         available = manual || release.version != Settings.skippedVersion ? release : nil
-        if let available { offer(available) }
+        // After "Later" the footer button stays, but the dialog waits for a newer version.
+        if let available, manual || available.version != Settings.postponedVersion { offer(available) }
+    }
+
+    /// The newest release, with the notes of every version since yours, newest first, so a skipped version's news isn't lost.
+    static func newest(_ releases: [Release]) -> Release? {
+        let newer = releases.filter { $0.prerelease != true && isNewer($0.version, than: current) }
+            .sorted { isNewer($0.version, than: $1.version) }
+        guard var latest = newer.first ?? releases.first(where: { $0.prerelease != true }) else { return nil }
+        if newer.count > 1 { latest.notes = newer.map { "# \($0.version)\n\($0.notes ?? "")" }.joined(separator: "\n\n") }
+        return latest
     }
 
     func offer(_ release: Release) {
@@ -118,7 +137,7 @@ final class Updater {
         case .alertThirdButtonReturn:
             Settings.skippedVersion = release.version
             available = nil
-        default: break
+        default: Settings.postponedVersion = release.version
         }
     }
 
