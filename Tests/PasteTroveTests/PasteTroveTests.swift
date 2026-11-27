@@ -264,3 +264,63 @@ func age(seconds: Double, label: String) {
     let all = Shortcut(keyCode: 0, modifiers: 0x1B00, key: "A") // Carbon cmdKey | shiftKey | optionKey | controlKey
     #expect(all.keys == ["⌃", "⌥", "⇧", "⌘", "A"] && all.label == "⌃⌥⇧⌘A")
 }
+
+@Test func undoBringsBackADeletedItemAsItWas() throws {
+    let store = try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)"))
+    func copy(_ text: String) {
+        store.save(Capture(kind: .text, text: text, key: Data(text.utf8), reps: [("public.utf8-plain-text", Data(text.utf8)), ("public.rtf", Data("rtf".utf8))]),
+                   app: "com.apple.Notes", limit: 100, imageLimit: 10)
+    }
+    copy("keep me")
+    copy("delete me")
+    let model = Model(store: store)
+    model.open()
+    let item = try #require(model.shown.first { $0.text == "delete me" })
+    store.setPinned(item.id, true)
+    model.reload()
+    model.delete(model.shown.first { $0.id == item.id })
+    #expect(model.undoArmed && model.canUndoDelete && !model.shown.contains { $0.id == item.id })
+
+    model.undoDelete()
+    let back = try #require(model.shown.first { $0.id == item.id })
+    #expect(back.text == "delete me" && back.pinned && back.app == "com.apple.Notes" && back.created == item.created)
+    #expect(store.reps(item.id).count == 2 && model.current?.id == item.id && !model.canUndoDelete)
+}
+
+@Test func undoAfterTheSameCopyAgainAddsNoDuplicate() throws {
+    let store = try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)"))
+    func copy(_ text: String) {
+        store.save(Capture(kind: .text, text: text, key: Data(text.utf8), reps: [("public.utf8-plain-text", Data(text.utf8))]),
+                   app: nil, limit: 100, imageLimit: 10)
+    }
+    copy("again")
+    let model = Model(store: store)
+    model.open()
+    model.delete(model.shown[0])
+    copy("again")
+    model.reload()
+    model.undoDelete()
+    #expect(model.shown.filter { $0.text == "again" }.count == 1)
+}
+
+@Test func undoKeepsTheLastTwentyAndStepsAsideForTyping() throws {
+    let store = try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)"))
+    for i in 1...21 {
+        let text = "item \(i)"
+        store.save(Capture(kind: .text, text: text, key: Data(text.utf8), reps: [("public.utf8-plain-text", Data(text.utf8))]),
+                   app: nil, limit: 100, imageLimit: 10)
+    }
+    let model = Model(store: store)
+    model.open()
+    for _ in 1...21 { model.delete(model.shown[0]) }
+    #expect(model.shown.isEmpty)
+    // Typing in the search field: ⌘Z belongs to the text again.
+    model.query = "x"
+    #expect(!model.canUndoDelete)
+    model.query = ""
+    for _ in 1...21 { model.undoDelete() }
+    // The very first delete fell out of the 20 kept.
+    #expect(model.shown.count == 20 && !model.shown.contains { $0.text == "item 21" })
+    model.close()
+    #expect(!model.undoArmed)
+}

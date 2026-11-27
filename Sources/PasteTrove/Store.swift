@@ -233,6 +233,42 @@ final class Store {
         return out
     }
 
+    /// A deleted item exactly as stored, kept in memory so ⌘Z can put it back.
+    struct Deleted {
+        let row: [Any?]
+        let reps: [(String, Data)]
+        var bytes: Int { reps.reduce(0) { $0 + $1.1.count } }
+    }
+
+    private static let columns = "id, hash, kind, style, text, app, created, pinned, words"
+
+    func snapshot(_ id: Int64) -> Deleted? {
+        var row: [Any?]?
+        query("SELECT \(Self.columns) FROM items WHERE id = ?", [id]) { st in
+            row = (0..<sqlite3_column_count(st)).map { Self.value(st, $0) }
+        }
+        return row.map { Deleted(row: $0, reps: reps(id)) }
+    }
+
+    /// Puts a deleted item back with its old id. False when the same content was copied again meanwhile:
+    /// it is already back at the top, so nothing is added twice.
+    @discardableResult
+    func restore(_ deleted: Deleted) -> Bool {
+        sqlite3_exec(db, "BEGIN", nil, nil, nil)
+        guard query("INSERT INTO items (\(Self.columns)) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", deleted.row) else {
+            rollback()
+            return false
+        }
+        for (type, data) in deleted.reps {
+            guard query("INSERT INTO reps (item_id, type, data) VALUES (?, ?, ?)", [deleted.row[0], type, data]) else {
+                rollback()
+                return false
+            }
+        }
+        sqlite3_exec(db, "COMMIT", nil, nil, nil)
+        return true
+    }
+
     func delete(_ id: Int64) {
         query("DELETE FROM items WHERE id = ?", [id])
     }
@@ -270,6 +306,16 @@ final class Store {
             result = sqlite3_step(st)
         }
         return result == SQLITE_DONE
+    }
+
+    private static func value(_ st: OpaquePointer, _ column: Int32) -> Any? {
+        switch sqlite3_column_type(st, column) {
+        case SQLITE_INTEGER: sqlite3_column_int64(st, column)
+        case SQLITE_FLOAT: sqlite3_column_double(st, column)
+        case SQLITE_TEXT: string(st, column)
+        case SQLITE_BLOB: sqlite3_column_blob(st, column).map { Data(bytes: $0, count: Int(sqlite3_column_bytes(st, column))) }
+        default: nil
+        }
     }
 
     private static func string(_ st: OpaquePointer, _ column: Int32) -> String? {
