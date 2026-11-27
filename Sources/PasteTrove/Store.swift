@@ -63,7 +63,7 @@ private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 /// SQLite history at ~/Library/Application Support/PasteTrove/history.sqlite.
 /// `items` holds the light rows the list needs, `reps` holds the raw data, loaded only to preview or paste.
-/// Every text, word list and data blob is encrypted (AES-GCM) with a key kept in the login Keychain;
+/// Every text, word list and data blob is encrypted (AES-GCM) with a key kept beside it but never in backups;
 /// deleted rows are overwritten, not only unlinked.
 final class Store {
     static let thumbnailType = "io.github.tawsifahmed.pastetrove.thumbnail"
@@ -82,7 +82,7 @@ final class Store {
         ProcessInfo.processInfo.environment["PASTETROVE_DATA_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? defaultDirectory
     }
 
-    /// `key` is for tests; otherwise the real history's key is in the Keychain, and any other folder keeps its own key file.
+    /// `key` is for tests; otherwise the key is the folder's `history.key`.
     init(directory dir: URL = Store.directory, key: SymmetricKey? = nil) throws {
         // Only you can open the folder, so the database and its journal files are yours alone.
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
@@ -123,30 +123,34 @@ final class Store {
         if version == 0 { encryptAll() }
     }
 
+    /// The key sits next to the history, readable only by you and left out of backups, so a copied or backed-up
+    /// history can't be read. Not the Keychain: without an Apple Team ID, macOS would ask for your password after every update.
     private static func loadKey(for dir: URL, create: Bool) throws -> SymmetricKey {
-        let missing = NSError(domain: "PasteTrove", code: 2, userInfo: [NSLocalizedDescriptionKey:
-            "The key that unlocks your encrypted history is missing from the Keychain, so it can't be read."])
-        guard dir.standardizedFileURL == defaultDirectory.standardizedFileURL else {
-            let file = dir.appendingPathComponent("history.key")
-            if let data = try? Data(contentsOf: file), data.count == 32 { return SymmetricKey(data: data) }
-            guard create else { throw missing }
-            let data = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
-            FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600])
-            return SymmetricKey(data: data)
+        var file = dir.appendingPathComponent("history.key")
+        if let data = try? Data(contentsOf: file), data.count == 32 { return SymmetricKey(data: data) }
+        let keychain = dir.standardizedFileURL == defaultDirectory.standardizedFileURL ? keychainKey() : nil
+        guard let data = keychain ?? (create ? SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) } : nil) else {
+            throw NSError(domain: "PasteTrove", code: 2, userInfo: [NSLocalizedDescriptionKey:
+                "The key that unlocks your encrypted history (history.key) is missing, so it can't be read."])
         }
-        let item: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: "io.github.tawsifahmed.PasteTrove",
-                                     kSecAttrAccount: "history-key"]
-        var found: CFTypeRef?
-        if SecItemCopyMatching(item.merging([kSecReturnData: true]) { $1 } as CFDictionary, &found) == errSecSuccess,
-           let data = found as? Data {
-            return SymmetricKey(data: data)
+        guard FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600]) else {
+            throw NSError(domain: "PasteTrove", code: 3, userInfo: [NSLocalizedDescriptionKey: "Cannot save the history key."])
         }
-        guard create else { throw missing }
-        let data = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
-        guard SecItemAdd(item.merging([kSecValueData: data, kSecAttrLabel: "PasteTrove history key"]) { $1 } as CFDictionary, nil) == errSecSuccess else {
-            throw NSError(domain: "PasteTrove", code: 3, userInfo: [NSLocalizedDescriptionKey: "Cannot save the history key in the Keychain."])
-        }
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? file.setResourceValues(values)
+        if keychain != nil { SecItemDelete(keychainItem as CFDictionary) }
         return SymmetricKey(data: data)
+    }
+
+    /// Test builds of 26–27 Nov 2026 kept the key in the Keychain; it moves to the file once.
+    private static let keychainItem: [CFString: Any] = [kSecClass: kSecClassGenericPassword,
+                                                        kSecAttrService: "io.github.tawsifahmed.PasteTrove", kSecAttrAccount: "history-key"]
+
+    private static func keychainKey() -> Data? {
+        var found: CFTypeRef?
+        guard SecItemCopyMatching(keychainItem.merging([kSecReturnData: true]) { $1 } as CFDictionary, &found) == errSecSuccess else { return nil }
+        return found as? Data
     }
 
     /// Once, for a history saved before encryption: seals every row, then rewrites the file so no plain page is left.
