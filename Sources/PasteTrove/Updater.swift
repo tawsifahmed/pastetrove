@@ -2,6 +2,7 @@ import AppKit
 import CryptoKit
 import Security
 import SwiftUI
+import UserNotifications
 
 /// A published PasteTrove release, as the GitHub Releases API returns it.
 struct Release: Codable {
@@ -37,7 +38,7 @@ struct Release: Codable {
 /// Checks GitHub Releases once a day for a newer PasteTrove, then downloads, verifies and installs it.
 /// A download is installed only when its checksum matches and macOS confirms it is signed
 /// with the same certificate as the running app; on any failure the current app stays as it is.
-final class Updater {
+final class Updater: NSObject {
     /// `PASTETROVE_UPDATE_URL` points the check at another feed, for tests.
     static let feed = URL(string: ProcessInfo.processInfo.environment["PASTETROVE_UPDATE_URL"]
         ?? "https://api.github.com/repos/tawsifahmed/pastetrove/releases?per_page=20")!
@@ -62,6 +63,8 @@ final class Updater {
 
     /// Checks soon after launch, then every hour whether a day has passed since the last check.
     func start() {
+        UNUserNotificationCenter.current().delegate = self
+        announceUpdate()
         if let data = UserDefaults.standard.data(forKey: "pendingRelease"),
            let saved = try? JSONDecoder().decode(Release.self, from: data), Self.isNewer(saved.version, than: Self.current) {
             available = saved
@@ -71,6 +74,36 @@ final class Updater {
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in self?.checkIfDue() }
+    }
+
+    /// The first launch after an update says so in a notification, with what's new; clicking it opens the release notes.
+    private func announceUpdate() {
+        let last = UserDefaults.standard.string(forKey: "lastRunVersion")
+        UserDefaults.standard.set(Self.current, forKey: "lastRunVersion")
+        // No version seen yet but not the first run: an update from a version that didn't keep track (0.1.6 and older).
+        guard last.map({ Self.isNewer(Self.current, than: $0) }) ?? UserDefaults.standard.bool(forKey: "didFirstRun") else { return }
+        let saved = UserDefaults.standard.data(forKey: "pendingRelease").flatMap { try? JSONDecoder().decode(Release.self, from: $0) }
+        let release = saved?.version == Self.current ? saved : nil
+        let topics = Self.topics(release?.notes ?? "")
+        let content = UNMutableNotificationContent()
+        content.title = "PasteTrove updated to \(Self.current)"
+        content.body = topics.isEmpty ? "Click to see what's new." : "New: \(topics.prefix(4).joined(separator: ", ")). Click to see all."
+        content.userInfo = ["page": release?.page.absoluteString ?? "https://github.com/tawsifahmed/pastetrove/releases/tag/v\(Self.current)"]
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert]) { granted, _ in
+            if granted { center.add(UNNotificationRequest(identifier: "updated", content: content, trigger: nil)) }
+        }
+    }
+
+    /// The short names of the changes in release notes: "search", "drag", "undo"… from lines like "- **search:** …".
+    static func topics(_ notes: String) -> [String] {
+        var seen: [String] = []
+        for line in plainNotes(notes).split(separator: "\n") where line.hasPrefix("• ") {
+            guard let name = line.dropFirst(2).split(separator: ":", maxSplits: 1).first, name.count <= 20,
+                  !seen.contains(String(name)) else { continue }
+            seen.append(String(name))
+        }
+        return seen
     }
 
     private func checkIfDue() {
@@ -363,5 +396,20 @@ struct UpdateProgressView: View {
         }
         .padding(20)
         .frame(width: 380)
+    }
+}
+
+extension Updater: UNUserNotificationCenterDelegate {
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler([.banner])
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        if let page = response.notification.request.content.userInfo["page"] as? String, let url = URL(string: page) {
+            NSWorkspace.shared.open(url)
+        }
+        completionHandler()
     }
 }
