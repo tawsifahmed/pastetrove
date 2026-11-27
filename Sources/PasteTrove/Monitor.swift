@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 /// Watches the system clipboard and writes items back to it.
 /// macOS has no "clipboard changed" event, so this polls `changeCount`, which is a cheap integer read.
@@ -69,7 +70,10 @@ final class Monitor {
             // it gets deleted later and macOS blocks reading it, so keep the picture itself when there is one.
             if urls.contains(where: { Cache.isOtherAppData($0.path) }), let image = readImage() { return image }
             let list = Data(urls.map(\.absoluteString).joined(separator: "\n").utf8)
-            return Capture(kind: .file, text: urls.map(\.path).joined(separator: "\n"), key: list, reps: [(Self.fileList, list)])
+            var reps = [(Self.fileList, list)]
+            // Made now, while you are copying it, so lists never open the file again later.
+            if urls.count == 1, let thumbnail = Self.thumbnail(of: urls[0]) { reps.append((Store.thumbnailType, thumbnail)) }
+            return Capture(kind: .file, text: urls.map(\.path).joined(separator: "\n"), key: list, reps: reps)
         }
         if let string = pasteboard.string(forType: .string),
            string.utf8.count < Self.maxSize,
@@ -172,9 +176,20 @@ final class Monitor {
 
     /// Small JPEG saved next to each image, so lists never decode the full screenshot.
     private static func thumbnail(_ png: Data) -> Data? {
-        guard let image = Cache.scaled(CGImageSourceCreateWithData(png as CFData, nil), Store.thumbnailSize),
-              let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        jpeg(Cache.scaled(CGImageSourceCreateWithData(png as CFData, nil), Store.thumbnailSize))
+    }
+
+    /// An image file's thumbnail, except in other apps' folders, on other disks, or over 25 MB.
+    private static func thumbnail(of url: URL) -> Data? {
+        guard !Cache.isOtherAppData(url.path), !url.path.hasPrefix("/Volumes/"),
+              UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true,
+              let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes < 25_000_000
         else { return nil }
+        return jpeg(Cache.scaled(CGImageSourceCreateWithURL(url as CFURL, nil), Store.thumbnailSize))
+    }
+
+    private static func jpeg(_ image: NSImage?) -> Data? {
+        guard let cgImage = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         return NSBitmapImageRep(cgImage: cgImage).representation(using: .jpeg, properties: [.compressionFactor: 0.8])
     }
 
