@@ -26,9 +26,9 @@ final class PreviewController {
     }
 
     /// A trackpad pinch. The preview never becomes the key window (that would close the panel), so macOS
-    /// doesn't hand it the gesture; the panel passes it on. It zooms at the point under the fingers.
+    /// doesn't hand it the gesture; the panel's event tap passes it on. It zooms at the point under the fingers.
     func magnify(_ event: NSEvent) -> Bool {
-        guard panel.isVisible, let scroll = zoom.scroll, let view = scroll.documentView, scroll.window != nil else { return false }
+        guard panel.isVisible, panel.frame.contains(NSEvent.mouseLocation), let scroll = zoom.scroll, let view = scroll.documentView, scroll.window != nil else { return false }
         let target = min(max(scroll.magnification * (1 + event.magnification), scroll.minMagnification), scroll.maxMagnification)
         let mouse = view.convert(panel.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
         let inside = view.visibleRect.contains(mouse)
