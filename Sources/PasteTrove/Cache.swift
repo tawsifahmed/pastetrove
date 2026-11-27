@@ -20,17 +20,28 @@ enum Cache {
         return cache
     }
 
-    /// Another app's private folder. macOS blocks reading it and shows a "Data Access Blocked" notice.
+    /// Another app's private or temporary folder. macOS blocks reading the first ("Data Access Blocked"),
+    /// and files in either are often deleted soon after.
     static func isOtherAppData(_ path: String) -> Bool {
         let library = NSHomeDirectory() + "/Library/"
         return path.hasPrefix(library + "Containers/") || path.hasPrefix(library + "Group Containers/")
+            || path.hasPrefix("/private/var/folders/") || path.hasPrefix("/var/folders/")
+    }
+
+    /// Places where even reading a file's details can ask for folder access (Desktop, Documents, Downloads,
+    /// iCloud Drive), be blocked, or stall on a slow or missing disk. Lists only use the file type there.
+    static func isProtected(_ path: String) -> Bool {
+        let home = NSHomeDirectory()
+        return isOtherAppData(path) || path.hasPrefix("/Volumes/")
+            || ["/Desktop/", "/Documents/", "/Downloads/", "/Library/Mobile Documents/"].contains { path.hasPrefix(home + $0) }
     }
 
     static func fileIcon(_ path: String) -> NSImage {
         if let hit = fileIcons.object(forKey: path as NSString) { return hit }
-        // The icon by type needs no disk access.
-        let icon = isOtherAppData(path)
-            ? NSWorkspace.shared.icon(for: UTType(filenameExtension: (path as NSString).pathExtension) ?? .data)
+        // The icon by type needs no disk access; a name without an extension is most likely a folder.
+        let ext = (path as NSString).pathExtension
+        let icon = isProtected(path)
+            ? NSWorkspace.shared.icon(for: ext.isEmpty ? .folder : UTType(filenameExtension: ext) ?? .data)
             : NSWorkspace.shared.icon(forFile: path)
         fileIcons.setObject(icon, forKey: path as NSString)
         return icon
@@ -75,8 +86,8 @@ enum Cache {
         let key = "file-\(url.path)-\(size)"
         if let hit = images.object(forKey: key as NSString) { return hit }
         guard !noThumbnail.contains(key) else { return nil }
-        // Skip huge files: decoding them would stall the list.
-        guard !isOtherAppData(url.path),
+        // Only the preview reads the file, when you ask for it. Skip huge files, blocked folders and other disks.
+        guard !isOtherAppData(url.path), !url.path.hasPrefix("/Volumes/"),
               UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true,
               let bytes = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, bytes < 25_000_000,
               let image = scaled(CGImageSourceCreateWithURL(url as CFURL, nil), size)

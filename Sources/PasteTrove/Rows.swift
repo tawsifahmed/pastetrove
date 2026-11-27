@@ -329,7 +329,8 @@ struct ClipContent: View {
             case .file:
                 let paths = item.paths
                 HStack(spacing: 8) {
-                    let image = paths.count == 1 ? Cache.fileThumbnail(URL(fileURLWithPath: paths[0]), size: 200) : nil
+                    // The thumbnail saved when it was copied: the list never opens the file.
+                    let image = paths.count == 1 ? Cache.thumbnail(item, store: store, size: 200) : nil
                     Image(nsImage: image ?? Cache.fileIcon(paths.first ?? ""))
                         .resizable().scaledToFit().frame(width: 36, height: 36)
                     VStack(alignment: .leading, spacing: 2) {
