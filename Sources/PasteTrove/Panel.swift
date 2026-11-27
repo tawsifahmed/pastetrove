@@ -98,8 +98,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         panel.makeKeyAndOrderFront(nil)
         model.commandHeld = NSEvent.modifierFlags.contains(.command)
         if keyMonitor == nil {
-            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { [weak self] event in
+            keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .magnify]) { [weak self] event in
                 guard let self else { return event }
+                if event.type == .magnify { return preview.magnify(event) ? nil : event }
                 if event.type == .flagsChanged {
                     model.commandHeld = event.modifierFlags.contains(.command)
                     // Letting go of ⌘ pastes what was tapped.
