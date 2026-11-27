@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.6 - 2026-11-27
+
+### Features
+- **search:** Screenshots and other images are found by the text in them. The text is read on your Mac with Apple's text recognition, once per image, by a helper that quits when done, so PasteTrove stays at about 25 MB. Right-click an image → Copy Text.
+- **paste:** Paste several at once (turn it on in Settings): hold ⌘, tap item numbers or ⌘-click items, let go of ⌘, and they paste in the order picked.
+- **drag:** Drag any item into another app, a document or a Finder folder. Picked items drag together, in order.
+- **preview:** Zoom into images: pinch, double-click, or ⌘+ and ⌘−; swipe with two fingers to move around.
+- **undo:** ⌘Z brings back the last deleted item (the last 20, while PasteTrove runs).
+- **copy note:** After each copy the menu bar icon turns blue and a small "Copied" note shows an icon for what was saved. Settings → General → Show a note when copying.
+- **settings:** A new Settings window with General, History and Privacy tabs. The shortcut is shown as keys.
+- **ignored apps:** Settings → Privacy → Ignored Apps: copies made in these apps are never saved.
+
+### Privacy and security
+- **history:** The history is encrypted on disk (AES-GCM). Its key, `history.key`, is readable only by you and left out of Time Machine, so backups and copies of the history can't be read. Deleted and cleared items are wiped from the file. The first launch encrypts an existing history once, in a few seconds. **After that, PasteTrove 0.1.5 and older can't read the history.**
+- **files:** Copying files no longer leads to "would like to access" prompts or the "Data Access Blocked" notice, and a disconnected disk can no longer stall the panel. Lists show copied files by type and a thumbnail made at copy time.
+- **runtime:** The app is signed with the hardened runtime, so other programs can't load code into it to borrow its permissions.
+- **links:** For half a second after a `pastetrove://` link opens the panel, ⏎ and ⌘ + number are ignored. The `preview=1` option is removed.
+- **images:** Images over 100 megapixels are skipped without being decoded.
+- **clipboard:** A copy is dropped if the clipboard changed while it was being read; the newer copy is checked on its own.
+
+### Fixes
+- **multi-paste:** Stops if another app comes to the front, and pastes the full text, not the list's 2,000-character preview.
+- **release:** A release must be signed with the PasteTrove certificate, so every release can update itself.
+
 ## 0.1.5 - 2026-11-25
 
 ### Features
