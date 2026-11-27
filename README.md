@@ -161,7 +161,7 @@ Found a problem or have an idea? Choose **Send Feedback…** in the gear menu, o
 
 - PasteTrove ignores items that password managers mark as secret or temporary ([nspasteboard.org](http://nspasteboard.org) markers, used by 1Password, Bitwarden, KeePassXC and others).
 - Copies made in the apps under **Settings → Privacy → Ignored Apps** are never saved.
-- History is stored in `~/Library/Application Support/PasteTrove/history.sqlite`. Delete that folder to remove all history.
+- History is stored in `~/Library/Application Support/PasteTrove/history.sqlite`, encrypted (AES-GCM) with a key kept in your login Keychain ("PasteTrove history key"). Deleted and cleared items are wiped from the file, not only hidden. Delete that folder to remove all history.
 
 ## Build from source
 

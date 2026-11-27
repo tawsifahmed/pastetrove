@@ -463,6 +463,12 @@ struct PrivacySettings: View {
                     Text("Accessibility")
                     Text("To paste into other apps.")
                 }
+                LabeledContent {
+                    Label("Encrypted", systemImage: "lock.fill").foregroundStyle(.green)
+                } label: {
+                    Text("History on this Mac")
+                    Text("With a key kept in your Keychain. Deleted items are wiped from the file.")
+                }
             }
             Section {
                 ForEach(model.ignoredApps, id: \.self) { id in

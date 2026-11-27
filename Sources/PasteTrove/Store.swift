@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import Security
 import SQLite3
 
 enum Kind: Int {
@@ -62,23 +63,30 @@ private let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
 
 /// SQLite history at ~/Library/Application Support/PasteTrove/history.sqlite.
 /// `items` holds the light rows the list needs, `reps` holds the raw data, loaded only to preview or paste.
+/// Every text, word list and data blob is encrypted (AES-GCM) with a key kept in the login Keychain;
+/// deleted rows are overwritten, not only unlinked.
 final class Store {
     static let thumbnailType = "io.github.tawsifahmed.pastetrove.thumbnail"
     static let thumbnailSize = 600
 
     private var db: OpaquePointer?
+    private var key: SymmetricKey!
+    /// For the duplicate check, so the stored hash can't confirm a guess of what was copied.
+    private var hashKey: SymmetricKey!
+
+    private static let defaultDirectory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("PasteTrove", isDirectory: true)
 
     /// `PASTETROVE_DATA_DIR` points the app at another folder, for demo data and screenshots.
     static var directory: URL {
-        if let custom = ProcessInfo.processInfo.environment["PASTETROVE_DATA_DIR"] {
-            return URL(fileURLWithPath: custom, isDirectory: true)
-        }
-        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("PasteTrove", isDirectory: true)
+        ProcessInfo.processInfo.environment["PASTETROVE_DATA_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? defaultDirectory
     }
 
-    init(directory dir: URL = Store.directory) throws {
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    /// `key` is for tests; otherwise the real history's key is in the Keychain, and any other folder keeps its own key file.
+    init(directory dir: URL = Store.directory, key: SymmetricKey? = nil) throws {
+        // Only you can open the folder, so the database and its journal files are yours alone.
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir.path)
         guard sqlite3_open(dir.appendingPathComponent("history.sqlite").path, &db) == SQLITE_OK else {
             throw NSError(domain: "PasteTrove", code: 1, userInfo: [NSLocalizedDescriptionKey: "Cannot open the history database."])
         }
@@ -87,6 +95,8 @@ final class Store {
             PRAGMA journal_mode = WAL;
             PRAGMA synchronous = NORMAL;
             PRAGMA foreign_keys = ON;
+            PRAGMA secure_delete = ON;
+            PRAGMA journal_size_limit = 4194304;
             CREATE TABLE IF NOT EXISTS items (
                 id INTEGER PRIMARY KEY,
                 hash TEXT NOT NULL UNIQUE,
@@ -105,6 +115,75 @@ final class Store {
             CREATE INDEX IF NOT EXISTS items_order ON items (pinned DESC, created DESC);
             """, nil, nil, nil)
         migrate()
+        var version = 0
+        query("PRAGMA user_version") { version = Int(sqlite3_column_int($0, 0)) }
+        // A new key only for a history that was never encrypted: a lost key must never silently turn rows into noise.
+        self.key = try key ?? Self.loadKey(for: dir, create: version == 0)
+        hashKey = HKDF<SHA256>.deriveKey(inputKeyMaterial: self.key, info: Data("hash".utf8), outputByteCount: 32)
+        if version == 0 { encryptAll() }
+    }
+
+    private static func loadKey(for dir: URL, create: Bool) throws -> SymmetricKey {
+        let missing = NSError(domain: "PasteTrove", code: 2, userInfo: [NSLocalizedDescriptionKey:
+            "The key that unlocks your encrypted history is missing from the Keychain, so it can't be read."])
+        guard dir.standardizedFileURL == defaultDirectory.standardizedFileURL else {
+            let file = dir.appendingPathComponent("history.key")
+            if let data = try? Data(contentsOf: file), data.count == 32 { return SymmetricKey(data: data) }
+            guard create else { throw missing }
+            let data = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+            FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600])
+            return SymmetricKey(data: data)
+        }
+        let item: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: "io.github.tawsifahmed.PasteTrove",
+                                     kSecAttrAccount: "history-key"]
+        var found: CFTypeRef?
+        if SecItemCopyMatching(item.merging([kSecReturnData: true]) { $1 } as CFDictionary, &found) == errSecSuccess,
+           let data = found as? Data {
+            return SymmetricKey(data: data)
+        }
+        guard create else { throw missing }
+        let data = SymmetricKey(size: .bits256).withUnsafeBytes { Data($0) }
+        guard SecItemAdd(item.merging([kSecValueData: data, kSecAttrLabel: "PasteTrove history key"]) { $1 } as CFDictionary, nil) == errSecSuccess else {
+            throw NSError(domain: "PasteTrove", code: 3, userInfo: [NSLocalizedDescriptionKey: "Cannot save the history key in the Keychain."])
+        }
+        return SymmetricKey(data: data)
+    }
+
+    /// Once, for a history saved before encryption: seals every row, then rewrites the file so no plain page is left.
+    private func encryptAll() {
+        sqlite3_exec(db, "BEGIN", nil, nil, nil)
+        var rows: [(Int64, String, String, String?)] = []
+        query("SELECT id, hash, text, words FROM items") { st in
+            rows.append((sqlite3_column_int64(st, 0), Self.string(st, 1) ?? "", Self.string(st, 2) ?? "", Self.string(st, 3)))
+        }
+        for (id, hash, text, words) in rows {
+            query("UPDATE items SET hash = ?, text = ?, words = ? WHERE id = ?",
+                  [hmac(hash), seal(Data(text.prefix(2000).utf8)), words.map { seal(Data($0.utf8)) }, id])
+            for (type, data) in rawReps(id) {
+                query("UPDATE reps SET data = ? WHERE item_id = ? AND type = ?", [seal(data), id, type])
+            }
+        }
+        sqlite3_exec(db, "COMMIT", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA user_version = 1", nil, nil, nil)
+        sqlite3_exec(db, "VACUUM", nil, nil, nil)
+        checkpoint()
+    }
+
+    private func seal(_ data: Data) -> Data {
+        (try? AES.GCM.seal(data, using: key))?.combined ?? Data()
+    }
+
+    private func open(_ data: Data?) -> Data? {
+        data.flatMap { try? AES.GCM.open(AES.GCM.SealedBox(combined: $0), using: key) }
+    }
+
+    private func hmac(_ hash: String) -> String {
+        HMAC<SHA256>.authenticationCode(for: Data(hash.utf8), using: hashKey).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Moves the journal into the database and empties it, so deleted rows don't linger in `history.sqlite-wal`.
+    private func checkpoint() {
+        sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE)", nil, nil, nil)
     }
 
     /// Adds the `style` column to older databases and fills it once for existing text items.
@@ -124,19 +203,21 @@ final class Store {
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
     }
 
-    /// The list rows. Text is cut to 2,000 characters for the list and search; preview and paste read the full data from `reps`.
+    /// The list rows. Text is kept to 2,000 characters for the list and search; preview and paste read the full data from `reps`.
     func items() -> [Item] {
         var out: [Item] = []
-        query("SELECT id, kind, style, substr(text, 1, 2000), app, created, pinned, substr(words, 1, 4000) FROM items ORDER BY pinned DESC, created DESC") { st in
+        query("SELECT id, kind, style, text, app, created, pinned, words FROM items ORDER BY pinned DESC, created DESC") { st in
+            // A row that can't be opened (another key) is left out rather than shown as noise.
+            guard let text = self.open(Self.blob(st, 3)) else { return }
             out.append(Item(
                 id: sqlite3_column_int64(st, 0),
                 kind: Kind(rawValue: Int(sqlite3_column_int(st, 1))) ?? .text,
                 style: TextStyle(rawValue: Int(sqlite3_column_int(st, 2))) ?? .plain,
-                text: Self.string(st, 3) ?? "",
+                text: String(String(decoding: text, as: UTF8.self).prefix(2000)),
                 app: Self.string(st, 4),
                 created: sqlite3_column_double(st, 5),
                 pinned: sqlite3_column_int(st, 6) != 0,
-                words: Self.string(st, 7) ?? ""
+                words: self.open(Self.blob(st, 7)).map { String(String(decoding: $0, as: UTF8.self).prefix(4000)) } ?? ""
             ))
         }
         return out
@@ -156,8 +237,7 @@ final class Store {
 
     /// Saves a capture. Copying the same content again moves the old item to the top instead of adding a duplicate.
     func save(_ clip: Capture, app: String?, limit: Int, imageLimit: Int) {
-        let hash = SHA256.hash(data: Data([UInt8(clip.kind.rawValue)]) + clip.key)
-            .map { String(format: "%02x", $0) }.joined()
+        let hash = hmac(SHA256.hash(data: Data([UInt8(clip.kind.rawValue)]) + clip.key).map { String(format: "%02x", $0) }.joined())
         let now = Date().timeIntervalSince1970
         var existing: Int64?
         query("SELECT id FROM items WHERE hash = ?", [hash]) { existing = sqlite3_column_int64($0, 0) }
@@ -169,11 +249,11 @@ final class Store {
         let style = clip.kind == .text ? TextStyle(clip.text) : .plain
         // All or nothing: an item without its data could not be pasted.
         guard query("INSERT INTO items (hash, kind, style, text, app, created) VALUES (?, ?, ?, ?, ?, ?)",
-                    [hash, clip.kind.rawValue, style.rawValue, String(clip.text.prefix(20_000)), app, now])
+                    [hash, clip.kind.rawValue, style.rawValue, seal(Data(clip.text.prefix(2000).utf8)), app, now])
         else { return rollback() }
         let id = sqlite3_last_insert_rowid(db)
         for (type, data) in clip.reps {
-            guard query("INSERT INTO reps (item_id, type, data) VALUES (?, ?, ?)", [id, type, data]) else { return rollback() }
+            guard query("INSERT INTO reps (item_id, type, data) VALUES (?, ?, ?)", [id, type, seal(data)]) else { return rollback() }
         }
         sqlite3_exec(db, "COMMIT", nil, nil, nil)
         trim(limit: limit, imageLimit: imageLimit)
@@ -197,6 +277,7 @@ final class Store {
         // Give space back only when something was deleted.
         if sqlite3_total_changes(db) > before {
             sqlite3_exec(db, "PRAGMA incremental_vacuum", nil, nil, nil)
+            checkpoint()
         }
     }
 
@@ -210,26 +291,25 @@ final class Store {
     }
 
     func setWords(_ id: Int64, _ words: String) {
-        query("UPDATE items SET words = ? WHERE id = ?", [words, id])
+        query("UPDATE items SET words = ? WHERE id = ?", [seal(Data(words.utf8)), id])
     }
 
     func reps(_ id: Int64) -> [(String, Data)] {
+        rawReps(id).compactMap { type, data in open(data).map { (type, $0) } }
+    }
+
+    /// As stored, still encrypted: for undo, which puts the row back exactly as it was.
+    private func rawReps(_ id: Int64) -> [(String, Data)] {
         var out: [(String, Data)] = []
         query("SELECT type, data FROM reps WHERE item_id = ?", [id]) { st in
-            if let type = Self.string(st, 0), let blob = sqlite3_column_blob(st, 1) {
-                out.append((type, Data(bytes: blob, count: Int(sqlite3_column_bytes(st, 1)))))
-            }
+            if let type = Self.string(st, 0), let data = Self.blob(st, 1) { out.append((type, data)) }
         }
         return out
     }
 
     func data(_ id: Int64, type: String) -> Data? {
         var out: Data?
-        query("SELECT data FROM reps WHERE item_id = ? AND type = ?", [id, type]) { st in
-            if let blob = sqlite3_column_blob(st, 0) {
-                out = Data(bytes: blob, count: Int(sqlite3_column_bytes(st, 0)))
-            }
-        }
+        query("SELECT data FROM reps WHERE item_id = ? AND type = ?", [id, type]) { out = self.open(Self.blob($0, 0)) }
         return out
     }
 
@@ -247,7 +327,7 @@ final class Store {
         query("SELECT \(Self.columns) FROM items WHERE id = ?", [id]) { st in
             row = (0..<sqlite3_column_count(st)).map { Self.value(st, $0) }
         }
-        return row.map { Deleted(row: $0, reps: reps(id)) }
+        return row.map { Deleted(row: $0, reps: rawReps(id)) }
     }
 
     /// Puts a deleted item back with its old id. False when the same content was copied again meanwhile:
@@ -271,6 +351,7 @@ final class Store {
 
     func delete(_ id: Int64) {
         query("DELETE FROM items WHERE id = ?", [id])
+        checkpoint()
     }
 
     func setPinned(_ id: Int64, _ pinned: Bool) {
@@ -280,6 +361,7 @@ final class Store {
     func clear() {
         query("DELETE FROM items WHERE pinned = 0")
         sqlite3_exec(db, "PRAGMA incremental_vacuum", nil, nil, nil)
+        checkpoint()
     }
 
     /// Runs one statement. Returns false when SQLite reports an error.
@@ -316,6 +398,10 @@ final class Store {
         case SQLITE_BLOB: sqlite3_column_blob(st, column).map { Data(bytes: $0, count: Int(sqlite3_column_bytes(st, column))) }
         default: nil
         }
+    }
+
+    private static func blob(_ st: OpaquePointer, _ column: Int32) -> Data? {
+        sqlite3_column_blob(st, column).map { Data(bytes: $0, count: Int(sqlite3_column_bytes(st, column))) }
     }
 
     private static func string(_ st: OpaquePointer, _ column: Int32) -> String? {
