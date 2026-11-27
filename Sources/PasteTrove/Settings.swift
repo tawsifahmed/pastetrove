@@ -467,7 +467,7 @@ struct PrivacySettings: View {
                     Label("Encrypted", systemImage: "lock.fill").foregroundStyle(.green)
                 } label: {
                     Text("History on this Mac")
-                    Text("With a key kept in your Keychain. Deleted items are wiped from the file.")
+                    Text("Backups and copies of the file can't be read. Deleted items are wiped from the file.")
                 }
             }
             Section {

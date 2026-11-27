@@ -410,6 +410,10 @@ private func diskBytes(_ dir: URL) throws -> Data {
     let store = try Store(directory: dir)
     store.save(Capture(kind: .text, text: "kept", key: Data("kept".utf8), reps: [("public.utf8-plain-text", Data("kept".utf8))]),
                app: nil, limit: 100, imageLimit: 10)
+    // The key is only yours and never in a backup, so a backed-up history can't be read.
+    let keyFile = dir.appendingPathComponent("history.key")
+    #expect(try keyFile.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup == true)
+    #expect((try FileManager.default.attributesOfItem(atPath: keyFile.path)[.posixPermissions] as? Int) == 0o600)
     // Another key reads nothing and does not crash.
     #expect(try Store(directory: dir, key: SymmetricKey(size: .bits256)).items().isEmpty)
     // No key at all: refuse to open instead of making a new key.
