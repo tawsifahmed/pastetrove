@@ -70,7 +70,7 @@ final class Model: ObservableObject {
     @Published private(set) var shown: [Item] = []
     @Published var selected = 0
     @Published var query = "" {
-        didSet { if query != oldValue { selected = 0; apply() } }
+        didSet { if query != oldValue { selected = 0; undoArmed = false; apply() } }
     }
     @Published var filter = Filter.all {
         didSet { if filter != oldValue { selected = 0; apply() } }
@@ -92,6 +92,10 @@ final class Model: ObservableObject {
     @Published var firstVisible = 0
     /// Items tapped with ⌘ + number while "Paste several at once" is on, in tap order.
     @Published var queue: [Item] = []
+    /// Deleted items, newest last, for ⌘Z. In memory only, so they are gone when PasteTrove quits.
+    private var trash: [Store.Deleted] = []
+    /// A delete just happened: the footer offers ⌘Z. Typing in the search field or closing the panel ends it.
+    @Published private(set) var undoArmed = false
     /// The item just copied with ⌘C, highlighted for a moment.
     @Published private(set) var flashID: Int64?
     private var all: [Item] = []
@@ -149,6 +153,7 @@ final class Model: ObservableObject {
 
     func close() {
         isOpen = false
+        undoArmed = false
         queue = []
     }
 
@@ -202,9 +207,27 @@ final class Model: ObservableObject {
 
     func delete(_ item: Item? = nil) {
         guard let item = item ?? current else { return }
+        if let deleted = store.snapshot(item.id) {
+            trash.append(deleted)
+            // The last 20 deletes, at most 100 MB.
+            while trash.count > 20 || trash.reduce(0, { $0 + $1.bytes }) > 100_000_000 { trash.removeFirst() }
+        }
         store.delete(item.id)
         queue.removeAll { $0.id == item.id }
+        undoArmed = true
         reload()
+    }
+
+    /// ⌘Z right after a delete, or with an empty search field; otherwise ⌘Z undoes typing in the search field.
+    var canUndoDelete: Bool { !trash.isEmpty && (undoArmed || query.isEmpty) }
+
+    func undoDelete() {
+        guard let deleted = trash.popLast() else { return }
+        if store.restore(deleted) {
+            reload()
+            if let id = deleted.row.first as? Int64 { selected = shown.firstIndex { $0.id == id } ?? selected }
+        }
+        undoArmed = !trash.isEmpty
     }
 
     func togglePin(_ item: Item? = nil) {

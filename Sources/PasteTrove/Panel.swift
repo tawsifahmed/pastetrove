@@ -290,6 +290,8 @@ final class PanelController: NSObject, NSWindowDelegate {
             if let editor = panel.firstResponder as? NSTextView, editor.selectedRange().length > 0 { return false }
             guard let item = model.current else { return false }
             copy(item)
+        case kVK_ANSI_Z where !shift && model.canUndoDelete:
+            model.undoDelete()
         case kVK_ANSI_P:
             model.togglePin()
         case kVK_ANSI_L:
@@ -592,6 +594,8 @@ struct PanelView: View {
             Spacer()
             if !model.queue.isEmpty {
                 Text("\(model.queue.count) selected · let go of ⌘ to paste").foregroundStyle(.tint)
+            } else if model.undoArmed {
+                Text("Deleted · ⌘Z to undo").foregroundStyle(.tint)
             } else if let version = model.updateVersion {
                 Button("Update to \(version)", systemImage: "arrow.up") { command(.updates) }
                     .buttonStyle(.bordered)

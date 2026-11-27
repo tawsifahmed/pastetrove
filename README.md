@@ -114,6 +114,7 @@ PasteTrove recognizes **code** (terminal commands, source code, JSON, SQL), **Ma
 | ⇥ / ⇧⇥ | Next / previous filter |
 | ⌘P | Pin or unpin. Pinned items stay at the top and are never removed. |
 | ⌘⌫ | Delete the item |
+| ⌘Z | Bring back the last deleted item (the last 20, while PasteTrove runs) |
 | ⌘L | Next layout |
 | ⌘, | Settings |
 | esc | Clear the search, then close |
