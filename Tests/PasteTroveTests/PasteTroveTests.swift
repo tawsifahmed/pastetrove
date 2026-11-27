@@ -43,6 +43,27 @@ func age(seconds: Double, label: String) {
     #expect(Cache.isOtherAppData(home + "/Library/Group Containers/group.com.apple.notes/a.png"))
     #expect(!Cache.isOtherAppData(home + "/Desktop/photo.jpg"))
     #expect(!Cache.isOtherAppData(home + "/Library/Caches/photo.jpg"))
+    #expect(Cache.isOtherAppData("/private/var/folders/xy/T/TemporaryItems/photo.png"))
+    // Lists use only the file type here: no folder-access prompts, no stalls on other disks.
+    #expect(Cache.isProtected(home + "/Desktop/photo.jpg") && Cache.isProtected(home + "/Downloads/a.zip"))
+    #expect(Cache.isProtected(home + "/Library/Mobile Documents/com~apple~CloudDocs/a.pdf") && Cache.isProtected("/Volumes/Backup/a.mov"))
+    #expect(!Cache.isProtected(home + "/Projects/a.swift") && !Cache.isProtected("/private/tmp/a.png"))
+}
+
+@Test func aCopiedImageFileKeepsItsThumbnail() throws {
+    let store = try Store(directory: URL(fileURLWithPath: NSTemporaryDirectory() + "pastetrove-test-\(UUID().uuidString)"))
+    let pasteboard = NSPasteboard(name: .init("pastetrove-test-\(UUID().uuidString)"))
+    defer { pasteboard.releaseGlobally() }
+    let monitor = Monitor(store: store, pasteboard: pasteboard)
+    let file = URL(fileURLWithPath: "/private/tmp/pastetrove-test-\(UUID().uuidString).png")
+    defer { try? FileManager.default.removeItem(at: file) }
+    let pixels = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 30, bitsPerSample: 8, samplesPerPixel: 4,
+                                  hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+    try #require(pixels.representation(using: .png, properties: [:])).write(to: file)
+    pasteboard.clearContents()
+    pasteboard.writeObjects([file as NSURL])
+    let clip = try #require(monitor.read(pasteboard.types?.map(\.rawValue) ?? []))
+    #expect(clip.kind == .file && clip.reps.contains { $0.0 == Store.thumbnailType })
 }
 
 @Test func keepsThePictureNotAnotherAppsTempFile() throws {
@@ -63,7 +84,8 @@ func age(seconds: Double, label: String) {
     let telegram = NSHomeDirectory() + "/Library/Containers/ru.keepcoder.Telegram/Data/tmp/photo.jpg"
     #expect(copy(telegram, image: true) == .image)
     #expect(copy(telegram, image: false) == .file)
-    #expect(copy(NSHomeDirectory() + "/Desktop/photo.jpg", image: true) == .file)
+    #expect(copy("/private/tmp/pastetrove-test-photo.jpg", image: true) == .file)
+    #expect(copy("/private/var/folders/xy/T/TemporaryItems/photo.png", image: true) == .image)
 }
 
 @Test func hugeImagesAreSkippedWithoutDecoding() throws {
